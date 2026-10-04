@@ -1,0 +1,113 @@
+name: documentar-prod
+
+x-api-environment: &api-environment
+  ENVIRONMENT: production
+  LOG_LEVEL: INFO
+  DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in deployement/.env}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:3000"]}'
+  S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://host.docker.internal:9000}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+  S3_BUCKET: ${S3_BUCKET:-documentar}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+
+services:
+  web:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001/api/v1}
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001/api/v1}
+      API_INTERNAL_URL: http://api:8000/api/v1
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/chat').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ../backend
+      target: production
+    environment: *api-environment
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8001}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ../backend
+      target: production
+    environment: *api-environment
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=2", "--hostname=worker@%h"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app:celery_app inspect ping --destination worker@$$HOSTNAME --timeout 5 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg17-bookworm
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-documentar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deployement/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-documentar}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-bookworm
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+
