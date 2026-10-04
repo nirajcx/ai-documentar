@@ -12,27 +12,27 @@ export function ToastContainer() {
       {toasts.map((toast: Toast) => (
         <div
           key={toast.id}
-          className={`toast pointer-events-auto flex items-start gap-3 p-4 bg-white dark:bg-zinc-900 border rounded-xl shadow-lg min-w-[280px] max-w-md ${
+          className={`toast pointer-events-auto flex items-start gap-3 p-4 bg-white dark:bg-[#1a1714] border rounded-xl shadow-lg min-w-[280px] max-w-md ${
             toast.kind === "error"
-              ? "border-l-4 border-l-red-500 border-zinc-200 dark:border-zinc-800"
+              ? "border-l-4 border-l-red-500 border-[#e8dfd3] dark:border-[#322b22]"
               : toast.kind === "info"
-              ? "border-l-4 border-l-blue-500 border-zinc-200 dark:border-zinc-800"
-              : "border-l-4 border-l-emerald-600 border-zinc-200 dark:border-zinc-800"
+              ? "border-l-4 border-l-sky-500 border-[#e8dfd3] dark:border-[#322b22]"
+              : "border-l-4 border-l-[#96743d] border-[#e8dfd3] dark:border-[#322b22]"
           }`}
         >
           {toast.kind === "error" ? (
             <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
           ) : toast.kind === "info" ? (
-            <Info className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+            <Info className="w-5 h-5 text-sky-500 shrink-0 mt-0.5" />
           ) : (
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+            <CheckCircle2 className="w-5 h-5 text-[#96743d] shrink-0 mt-0.5" />
           )}
-          <span className="flex-1 text-xs text-zinc-800 dark:text-zinc-200 leading-snug break-words">
+          <span className="flex-1 text-xs text-[#2a241e] dark:text-[#f3eee7] leading-snug break-words">
             {toast.message}
           </span>
           <button
             onClick={() => dismiss(toast.id)}
-            className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-0.5"
+            className="text-[#a89b8c] hover:text-[#5e5141] dark:hover:text-[#f3eee7] p-0.5 cursor-pointer"
             aria-label="Dismiss"
           >
             <X className="w-4 h-4" />

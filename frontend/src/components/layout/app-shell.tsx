@@ -1,8 +1,7 @@
 "use client";
-
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Files,
   Menu,
@@ -38,19 +37,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // If user is not logged in, render clean full-width shell without the sidebar
   if (!mounted || !user) {
     return (
-      <div className="min-h-dvh flex flex-col bg-zinc-50/50 dark:bg-zinc-950 text-foreground">
-        <header className="border-b border-zinc-200/80 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-md px-6 py-4 flex items-center justify-between sticky top-0 z-30">
-          <Link href="/" className="flex items-center gap-2.5 font-bold text-lg text-emerald-800 dark:text-emerald-400">
-            <div className="w-8 h-8 rounded-lg bg-emerald-700 text-white flex items-center justify-center shadow-sm">
+      <div className="min-h-dvh flex flex-col bg-[#faf8f5] dark:bg-[#141210] text-foreground">
+        <header className="border-b border-[#e8dfd3] dark:border-[#322b22] bg-white/80 dark:bg-[#1c1916]/80 backdrop-blur-md px-6 py-4 flex items-center justify-between sticky top-0 z-30">
+          <Link href="/" className="flex items-center gap-2.5 font-bold text-lg text-[#8c6d3b] dark:text-[#d4af6a]">
+            <div className="w-8 h-8 rounded-lg bg-[#96743d] hover:bg-[#83632f] text-white flex items-center justify-center shadow-sm">
               <FileSpreadsheet className="w-4 h-4" />
             </div>
             <span>AI-Documenter</span>
           </Link>
           <div className="flex items-center gap-3 text-xs">
-            <span className="text-zinc-500 hidden sm:inline">Intelligent Document RAG</span>
+            <span className="text-[#827566] hidden sm:inline">Intelligent Document RAG</span>
             <Link
               href="/"
-              className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-medium transition shadow-sm"
+              className="px-3 py-1.5 rounded-lg bg-[#96743d] hover:bg-[#83632f] text-white font-medium transition shadow-sm"
             >
               Sign In
             </Link>
@@ -61,9 +60,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Authenticated: ChatGPT / Claude style collapsible sidebar
+  // Authenticated: ChatGPT / Claude style collapsible sidebar with warm golden-brown accents
   return (
-    <div className="min-h-dvh flex bg-zinc-50/40 dark:bg-zinc-950 text-foreground overflow-x-hidden">
+    <div className="min-h-dvh flex bg-[#faf8f5] dark:bg-[#141210] text-foreground overflow-x-hidden">
       {/* Mobile Backdrop */}
       {sidebarOpen && (
         <div
@@ -76,14 +75,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside
         id="sidebar"
         className={cn(
-          "fixed md:sticky top-0 h-dvh z-50 md:z-20 bg-zinc-50 dark:bg-zinc-950 border-r border-zinc-200/80 dark:border-zinc-800/80 transition-all duration-300 ease-in-out flex flex-col justify-between shrink-0",
-          // Mobile state
+          "fixed md:sticky top-0 h-dvh z-50 md:z-20 bg-[#f7f2ea] dark:bg-[#181512] border-r border-[#e8dfd3] dark:border-[#322b22] transition-all duration-300 ease-in-out flex flex-col justify-between shrink-0",
           sidebarOpen ? "left-0 w-64 shadow-2xl" : "-left-64 md:left-0",
-          // Desktop state
           sidebarCollapsed ? "md:w-16" : "md:w-64"
         )}
       >
-        {/* Top Header / Brand / Collapse Toggle */}
+        {/* Top Section */}
         <div className="p-3">
           <div
             className={cn(
@@ -92,18 +89,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
           >
             {!sidebarCollapsed && (
-              <Link href="/" className="flex items-center gap-2 font-bold text-sm text-emerald-800 dark:text-emerald-400 truncate">
-                <div className="w-7 h-7 rounded-lg bg-emerald-700 text-white flex items-center justify-center shrink-0 shadow-sm">
+              <Link href="/" className="flex items-center gap-2 font-bold text-sm text-[#8c6d3b] dark:text-[#d4af6a] truncate">
+                <div className="w-7 h-7 rounded-lg bg-[#96743d] text-white flex items-center justify-center shrink-0 shadow-sm">
                   <FileSpreadsheet className="w-4 h-4" />
                 </div>
                 <span className="truncate">AI-Documenter</span>
               </Link>
             )}
 
-            {/* Desktop Collapse / Expand Button (ChatGPT/Claude Style) */}
+            {/* Desktop Collapse / Expand Button */}
             <button
               onClick={toggleSidebarCollapse}
-              className="hidden md:inline-flex p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60 transition cursor-pointer"
+              className="hidden md:inline-flex p-1.5 rounded-lg text-[#827566] hover:text-[#4a3b26] dark:hover:text-[#f3eee7] hover:bg-[#ede3d4] dark:hover:bg-[#27221b] transition cursor-pointer"
               title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
@@ -113,7 +110,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {/* Mobile Close Button */}
             <button
               onClick={closeSidebar}
-              className="md:hidden p-1.5 rounded-lg text-zinc-500 hover:bg-zinc-200/60"
+              className="md:hidden p-1.5 rounded-lg text-[#827566] hover:bg-[#ede3d4]"
               aria-label="Close sidebar"
             >
               <PanelLeftClose className="w-5 h-5" />
@@ -125,7 +122,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             href="/chat"
             onClick={closeSidebar}
             className={cn(
-              "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-semibold bg-emerald-700 hover:bg-emerald-800 text-white shadow-sm transition mb-4",
+              "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-semibold bg-[#96743d] hover:bg-[#83632f] text-white shadow-sm transition mb-4",
               sidebarCollapsed ? "justify-center px-0" : ""
             )}
             title="New Chat"
@@ -145,8 +142,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   onClick={closeSidebar}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium transition text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60",
-                    active && "bg-emerald-100/70 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-300 font-semibold",
+                    "flex items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium transition text-[#5e5141] dark:text-[#c4b5a3] hover:bg-[#ede3d4] dark:hover:bg-[#252019]",
+                    active && "bg-[#eddcc2]/70 dark:bg-[#342a1d] text-[#63491f] dark:text-[#e4c48b] font-semibold shadow-xs",
                     sidebarCollapsed && "justify-center px-0"
                   )}
                   title={label}
@@ -160,21 +157,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Bottom User Profile Section */}
-        <div className="p-3 border-t border-zinc-200/80 dark:border-zinc-800/80">
+        <div className="p-3 border-t border-[#e8dfd3] dark:border-[#322b22]">
           <div
             className={cn(
-              "flex items-center gap-2 rounded-xl p-2 bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 shadow-sm",
+              "flex items-center gap-2 rounded-xl p-2 bg-white dark:bg-[#1f1b17] border border-[#e8dfd3] dark:border-[#322b22] shadow-sm",
               sidebarCollapsed ? "justify-center p-2" : "justify-between"
             )}
           >
             <div className="flex items-center gap-2.5 overflow-hidden">
-              <div className="w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <div className="w-7 h-7 rounded-full bg-[#f4ebd9] dark:bg-[#32281a] text-[#8c6d3b] dark:text-[#d4af6a] flex items-center justify-center shrink-0">
                 <User className="w-3.5 h-3.5" />
               </div>
               {!sidebarCollapsed && (
                 <div className="truncate text-xs leading-tight">
-                  <p className="font-semibold text-zinc-900 dark:text-zinc-100 truncate">{user.username}</p>
-                  <p className="text-zinc-400 truncate text-[11px]">{user.email}</p>
+                  <p className="font-semibold text-[#2a241e] dark:text-[#f3eee7] truncate">{user.username}</p>
+                  <p className="text-[#827566] truncate text-[11px]">{user.email}</p>
                 </div>
               )}
             </div>
@@ -182,7 +179,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {!sidebarCollapsed && (
               <button
                 onClick={() => void logout()}
-                className="text-zinc-400 hover:text-red-600 transition p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+                className="text-[#827566] hover:text-red-600 transition p-1.5 rounded-md hover:bg-[#f5efe6] dark:hover:bg-[#2b241c] cursor-pointer"
                 title="Sign out"
               >
                 <LogOut className="w-4 h-4" />
@@ -190,11 +187,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
           </div>
 
-          {/* Quick Signout icon when collapsed */}
           {sidebarCollapsed && (
             <button
               onClick={() => void logout()}
-              className="mt-2 w-full flex justify-center p-2 text-zinc-400 hover:text-red-600 rounded-lg hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60 transition cursor-pointer"
+              className="mt-2 w-full flex justify-center p-2 text-[#827566] hover:text-red-600 rounded-lg hover:bg-[#ede3d4] dark:hover:bg-[#252019] transition cursor-pointer"
               title="Sign out"
             >
               <LogOut className="w-4 h-4" />
@@ -206,7 +202,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Main Workspace Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Mobile Top Bar */}
-        <header className="flex items-center justify-between border-b border-zinc-200/80 dark:border-zinc-800 p-3 md:hidden bg-white/70 dark:bg-zinc-900/70 backdrop-blur-md sticky top-0 z-30">
+        <header className="flex items-center justify-between border-b border-[#e8dfd3] dark:border-[#322b22] p-3 md:hidden bg-white/80 dark:bg-[#1c1916]/80 backdrop-blur-md sticky top-0 z-30">
           <Button
             variant="ghost"
             size="icon"
@@ -214,18 +210,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             aria-label="Toggle navigation"
             aria-expanded={sidebarOpen}
           >
-            <Menu className="w-5 h-5" />
+            <Menu className="w-5 h-5 text-[#8c6d3b]" />
           </Button>
-          <div className="flex items-center gap-2 font-bold text-sm text-emerald-800 dark:text-emerald-400">
+          <div className="flex items-center gap-2 font-bold text-sm text-[#8c6d3b] dark:text-[#d4af6a]">
             <FileSpreadsheet className="w-4 h-4" />
             <span>AI-Documenter</span>
           </div>
-          <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-semibold">
+          <div className="w-7 h-7 rounded-full bg-[#f4ebd9] text-[#8c6d3b] flex items-center justify-center text-xs font-semibold">
             {user.username.charAt(0).toUpperCase()}
           </div>
         </header>
 
-        {/* Content Container */}
         <main id="main" className="flex-1 w-full max-w-5xl mx-auto p-4 sm:p-6 md:p-8">
           {children}
         </main>

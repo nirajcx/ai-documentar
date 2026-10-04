@@ -1,4 +1,4 @@
-import { LoginResponse, LogoutResponse, UserProfile } from "./types";
+import { ChatMessage, ChatResponse, LoginResponse, LogoutResponse, UserProfile } from "./types";
 
 export type HealthResponse = { status: "ok" };
 
@@ -75,6 +75,82 @@ export const api = {
     });
     if (!res.ok) throw await responseError(res, "Session expired or invalid.");
     return res.json();
+  },
+
+  async getModels(): Promise<any[]> {
+    const res = await fetch(`${apiBaseUrl()}/chat/models`, {
+      method: "GET",
+      credentials: "include",
+    });
+    if (!res.ok) throw await responseError(res, "Failed to load Ollama models.");
+    const data = await res.json();
+    return data.models || [];
+  },
+
+  async sendMessage(messages: ChatMessage[], model: string = "llama3.1:8b"): Promise<ChatResponse> {
+    const res = await fetch(`${apiBaseUrl()}/chat/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ messages, model }),
+    });
+    if (!res.ok) throw await responseError(res, "Failed to send message.");
+    return res.json();
+  },
+
+  /**
+   * Stream live chat tokens from Ollama via SSE.
+   * Calls onChunk for each new word/token, and onDone when finished.
+   */
+  async streamMessage(
+    messages: ChatMessage[],
+    model: string,
+    onChunk: (token: string) => void,
+    onDone: () => void,
+    signal?: AbortSignal
+  ): Promise<void> {
+    const res = await fetch(`${apiBaseUrl()}/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ messages, model }),
+      signal,
+    });
+
+    if (!res.ok) throw await responseError(res, "Streaming request failed.");
+    if (!res.body) throw new Error("No response stream body available.");
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("data:")) {
+          const jsonStr = trimmed.slice(5).trim();
+          try {
+            const data = JSON.parse(jsonStr);
+            if (data.content) {
+              onChunk(data.content);
+            }
+            if (data.done) {
+              onDone();
+            }
+          } catch {
+            // ignore non-json ping/keepalive
+          }
+        }
+      }
+    }
+    onDone();
   },
 
   async getHealth(signal?: AbortSignal): Promise<HealthResponse> {

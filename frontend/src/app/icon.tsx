@@ -12,7 +12,7 @@ export default function Icon() {
       <div
         style={{
           fontSize: 18,
-          background: "#047857", // Emerald 700
+          background: "#96743d", // Golden brown
           width: "100%",
           height: "100%",
           display: "flex",

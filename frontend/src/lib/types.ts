@@ -15,3 +15,17 @@ export interface LoginResponse {
 export interface LogoutResponse {
   message: string;
 }
+
+export interface ChatMessage {
+  id?: string;
+  role: "system" | "user" | "assistant";
+  content: string;
+  created_at?: string;
+}
+
+export interface ChatResponse {
+  message: ChatMessage;
+  model: string;
+  done: boolean;
+  total_duration?: number;
+}
