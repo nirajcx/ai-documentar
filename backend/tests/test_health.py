@@ -2,7 +2,7 @@ import asyncio
 
 import httpx
 
-from app.main import app
+from main import app
 
 
 def test_health_and_explicit_development_cors():

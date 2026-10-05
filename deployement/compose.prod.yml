@@ -13,6 +13,13 @@ x-api-environment: &api-environment
   S3_REGION: ${S3_REGION:-us-east-1}
   OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
 
+  CHAT_PROVIDER: ${CHAT_PROVIDER:-groq}
+  GROQ_API_KEY: ${GROQ_API_KEY:-}
+  GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
+  GROQ_REASONING_EFFORT: ${GROQ_REASONING_EFFORT:-low}
+  GROQ_MAX_COMPLETION_TOKENS: ${GROQ_MAX_COMPLETION_TOKENS:-2048}
+  OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.1:8b}
+
 services:
   web:
     build:

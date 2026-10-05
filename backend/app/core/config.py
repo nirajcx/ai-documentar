@@ -1,12 +1,14 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore", env_ignore_empty=True
+    )
 
     environment: Literal["development", "production", "test"] = "development"
     log_level: str = "INFO"
@@ -20,6 +22,12 @@ class Settings(BaseSettings):
     s3_secret_access_key: SecretStr = SecretStr("")
     s3_bucket: str = "documentar"
     s3_region: str = "us-east-1"
+    chat_provider: Literal["groq", "ollama"] = "groq"
+    groq_api_key: SecretStr = SecretStr("")
+    groq_model: str = "openai/gpt-oss-120b"
+    groq_reasoning_effort: Literal["low", "medium", "high"] = "low"
+    groq_max_completion_tokens: int = Field(default=2048, ge=1, le=65536)
+    ollama_chat_model: str = "llama3.1:8b"
     ollama_base_url: str = "http://localhost:11434"
 
 

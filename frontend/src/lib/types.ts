@@ -29,3 +29,12 @@ export interface ChatResponse {
   done: boolean;
   total_duration?: number;
 }
+
+export type ChatProvider = "groq" | "ollama";
+
+export interface ChatModelsResponse {
+  provider: ChatProvider;
+  default_model: string;
+  configured: boolean;
+  models: { name: string }[];
+}

@@ -2,7 +2,7 @@
 
 Goal: upload multiple documents to the existing MinIO instance, parse/OCR, chunk and embed them in the background, retrieve relevant content from PostgreSQL/pgvector, and provide streamed chat answers with citations and feedback.
 
-**This is currently a scaffold only.** Chat/Documents pages, a disabled composer, API health, database session configuration, Alembic and Celery configuration are in place. Uploads, OCR, embeddings, search, chat generation, authentication and product tables are not implemented. Startup does not contact MinIO or Ollama.
+**Document RAG is still under development.** The application includes authentication and streamed chat through Groq or Ollama, alongside database and worker configuration. Document ingestion, OCR, embeddings, retrieval and source-grounded answers remain future work. See the Groq and Ollama chat section below for provider setup.
 
 ## Folder structure
 
@@ -207,3 +207,47 @@ git push -u origin HEAD
 ```
 
 If no remote is configured, run `git remote add origin YOUR_REPOSITORY_URL` with your actual repository URL first. The scaffold task has not created commits, configured remotes or pushed changes.
+
+## Groq and Ollama chat
+
+Chat supports **Groq cloud** and the existing **Ollama** provider. Groq uses the official OpenAI Python SDK (`AsyncOpenAI`) with `https://api.groq.com/openai/v1`; no OpenAI API key is required. This integration only changes chat, not local embedding configuration. The chat page includes a provider selector and uses the server's configured default on first load.
+
+Add these settings to your existing `backend/.env` for host-run development, or to the Compose environment file you actually use (`deployement/.env` or `deployement/.env.ubuntu`):
+
+```dotenv
+CHAT_PROVIDER=groq
+GROQ_API_KEY=your-groq-api-key
+GROQ_MODEL=openai/gpt-oss-120b
+GROQ_REASONING_EFFORT=low
+GROQ_MAX_COMPLETION_TOKENS=2048
+OLLAMA_CHAT_MODEL=llama3.1:8b
+```
+
+Keep your existing `OLLAMA_BASE_URL`. Set `CHAT_PROVIDER=ollama` to make Ollama the default again, or select Ollama in the chat UI. There is no automatic cross-provider fallback. Groq model discovery shows the configured `GROQ_MODEL`; change that value to use another model, such as `openai/gpt-oss-20b`. Reasoning effort (`low`, `medium`, `high`) is applied to those two GPT-OSS models only. Completion tokens also cover reasoning; increase the budget if answers cannot finish. The UI displays final answer content rather than reasoning tokens.
+
+Install the updated backend dependencies and restart the API:
+
+```sh
+uv sync --project backend --locked
+# Alternative: activate your Python 3.12 environment, then:
+python -m pip install -r backend/requirements.txt
+```
+
+For Docker development, rebuild/recreate the app services after saving the environment file:
+
+```sh
+docker compose --env-file deployement/.env -f deployement/compose.dev.yml up -d --build api web
+```
+
+For Ubuntu production, use `deployement/.env.ubuntu` and `deployement/compose.prod.yml` instead. Reload the chat page after restart. A missing Groq key produces a configuration message; Ollama remains selectable. Groq credentials stay server-side and are never returned to the browser. Choosing Groq sends chat messages to Groq. No external model call is made at startup.
+
+Both `/api/v1/chat/` and `/api/v1/chat/stream` accept optional `provider` (`groq` or `ollama`) and `model` fields. Omitting them uses server defaults. Streaming returns SSE `content` frames followed by `done`, or an `error` frame on failure. Rate limits, timeouts and incomplete generations are surfaced instead of silently appearing successful.
+
+Provider tests mock upstream HTTP through the real OpenAI SDK and require no real key:
+
+```sh
+uv run --project backend --locked pytest backend/tests
+node --experimental-strip-types --test frontend/tests/chat-stream.test.mjs
+```
+
+References: [OpenAI Python SDK](https://developers.openai.com/api/reference/python), [Groq OpenAI compatibility](https://console.groq.com/docs/openai).

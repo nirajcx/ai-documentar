@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { api } from "@/lib/api";
-import { ChatMessage } from "@/lib/types";
+import { ChatMessage, ChatProvider } from "@/lib/types";
 import { notify } from "@/stores/useToastStore";
 
 export default function ChatPage() {
@@ -27,8 +27,12 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
-  const [models, setModels] = useState<any[]>([]);
-  const [selectedModel, setSelectedModel] = useState("llama3.1:8b");
+  const [models, setModels] = useState<{ name: string }[]>([]);
+  const [selectedModel, setSelectedModel] = useState("");
+  const [provider, setProvider] = useState<ChatProvider>("groq");
+  const [requestedProvider, setRequestedProvider] = useState<ChatProvider>();
+  const [providerReady, setProviderReady] = useState(false);
+  const [providerError, setProviderError] = useState("");
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -39,28 +43,36 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streaming]);
 
-  // Load available Ollama models
+  // Initially use the server's configured default; users may explicitly switch providers.
   useEffect(() => {
+    let active = true;
     async function loadModels() {
+      setProviderReady(false);
+      setProviderError("");
+      setModels([]);
+      setSelectedModel("");
       try {
-        const fetched = await api.getModels();
-        setModels(fetched);
-        if (fetched.length > 0) {
-          const hasLlama = fetched.some((m: any) => m.name.includes("llama3.1"));
-          if (!hasLlama) {
-            setSelectedModel(fetched[0].name);
-          }
-        }
+        const result = await api.getModels(requestedProvider);
+        if (!active) return;
+        setProvider(result.provider);
+        setModels(result.models);
+        const model = result.models.find((m) => m.name === result.default_model)
+          ?? result.models[0];
+        setSelectedModel(model?.name ?? "");
+        setProviderReady(result.configured && Boolean(model));
+        if (!result.configured) setProviderError("Set GROQ_API_KEY in the backend environment, restart the API, and reload this page.");
+        else if (!model) setProviderError("No chat models are available for this provider.");
       } catch (err) {
-        console.warn("Could not load Ollama models list:", err);
+        if (active) setProviderError(err instanceof Error ? err.message : "Could not load chat models.");
       }
     }
     void loadModels();
-  }, []);
+    return () => { active = false; };
+  }, [requestedProvider]);
 
   async function handleSend(e?: React.FormEvent) {
     if (e) e.preventDefault();
-    if (!input.trim() || streaming) return;
+    if (!input.trim() || streaming || !providerReady) return;
 
     const userText = input.trim();
     setInput("");
@@ -101,7 +113,8 @@ export default function ChatPage() {
           setStreaming(false);
           setLoading(false);
         },
-        controller.signal
+        controller.signal,
+        provider
       );
     } catch (err: unknown) {
       if (controller.signal.aborted) {
@@ -119,8 +132,7 @@ export default function ChatPage() {
           updated[lastIndex] = {
             ...updated[lastIndex],
             content:
-              updated[lastIndex].content ||
-              `⚠️ Error connecting to Ollama (${selectedModel}): ${msg}. Please check that Ollama is running on your Mac.`,
+              `${updated[lastIndex].content}${updated[lastIndex].content ? "\n\n" : ""}⚠️ ${msg}`,
           };
         }
         return updated;
@@ -173,25 +185,39 @@ export default function ChatPage() {
               <div className="flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold rounded-full bg-[#f7f0e3] dark:bg-[#2b2216] text-[#96743d] dark:text-[#d4af6a] border border-[#e8dfd3] dark:border-[#3a2e1d]">
                 <Cpu className="w-3.5 h-3.5" />
                 <select
+                  aria-label="Chat provider"
+                  value={requestedProvider ?? provider}
+                  disabled={streaming}
+                  onChange={(e) => {
+                    setProviderReady(false);
+                    setRequestedProvider(e.target.value as ChatProvider);
+                  }}
+                  className="bg-transparent text-xs cursor-pointer"
+                >
+                  <option value="groq" className="dark:bg-[#1c1916]">Groq</option>
+                  <option value="ollama" className="dark:bg-[#1c1916]">Ollama</option>
+                </select>
+                <select
+                  aria-label="Chat model"
                   value={selectedModel}
                   onChange={(e) => setSelectedModel(e.target.value)}
                   disabled={streaming}
                   className="bg-transparent border-none text-xs font-medium focus:outline-none cursor-pointer"
                 >
                   {models.length > 0 ? (
-                    models.map((m: any) => (
+                    models.map((m) => (
                       <option key={m.name} value={m.name} className="dark:bg-[#1c1916]">
                         {m.name}
                       </option>
                     ))
                   ) : (
-                    <option value="llama3.1:8b">llama3.1:8b</option>
+                    <option value="">No model available</option>
                   )}
                 </select>
               </div>
             </div>
             <p className="text-xs text-[#827566] dark:text-[#a89b8c] mt-0.5">
-              Live token streaming · Ollama on MacBook (192.168.1.4:11434)
+              Live token streaming · {provider === "ollama" ? "Local Ollama" : "Groq cloud"}
             </p>
           </div>
 
@@ -208,6 +234,8 @@ export default function ChatPage() {
           )}
         </div>
 
+        {providerError && <p role="alert" className="py-3 text-sm text-red-600">{providerError}</p>}
+
         {/* Message Thread */}
         <div className="flex-1 overflow-y-auto py-6 space-y-6 pr-2">
           {messages.length === 0 ? (
@@ -219,7 +247,7 @@ export default function ChatPage() {
                 How can I help you today?
               </h2>
               <p className="mt-2 max-w-md text-xs text-[#827566] dark:text-[#a89b8c] leading-relaxed">
-                Your local Ollama model (<strong>{selectedModel}</strong>) is connected with real-time streaming tokens and markdown formatting.
+                {provider === "ollama" ? "Messages are sent to your configured Ollama server." : "Messages are sent to Groq for cloud generation."} Responses support streaming and Markdown.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-6 max-w-lg w-full">
                 <button
@@ -246,9 +274,8 @@ export default function ChatPage() {
             messages.map((m, idx) => (
               <div
                 key={idx}
-                className={`flex gap-3.5 group ${
-                  m.role === "user" ? "justify-end" : "justify-start"
-                }`}
+                className={`flex gap-3.5 group ${m.role === "user" ? "justify-end" : "justify-start"
+                  }`}
               >
                 {m.role === "assistant" && (
                   <div className="w-8 h-8 rounded-xl bg-[#f7f0e3] dark:bg-[#2b2216] text-[#96743d] dark:text-[#d4af6a] flex items-center justify-center shrink-0 shadow-xs mt-0.5">
@@ -257,11 +284,10 @@ export default function ChatPage() {
                 )}
 
                 <div
-                  className={`relative max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-xs ${
-                    m.role === "user"
+                  className={`relative max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-xs ${m.role === "user"
                       ? "bg-[#96743d] text-white rounded-br-xs whitespace-pre-wrap"
                       : "bg-white dark:bg-[#1a1714] border border-[#e8dfd3] dark:border-[#322b22] text-[#2a241e] dark:text-[#f3eee7] rounded-bl-xs"
-                  }`}
+                    }`}
                 >
                   {m.role === "assistant" ? (
                     <div className="markdown-content">
@@ -343,7 +369,7 @@ export default function ChatPage() {
               ) : (
                 <Button
                   type="submit"
-                  disabled={!input.trim() || loading}
+                  disabled={!input.trim() || loading || !providerReady}
                   className="bg-[#96743d] hover:bg-[#83632f] disabled:opacity-40 text-white gap-1.5 px-4 h-8 text-xs rounded-lg cursor-pointer shadow-xs"
                 >
                   <span>Send</span>
