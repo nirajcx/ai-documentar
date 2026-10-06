@@ -10,7 +10,8 @@ import {
   User,
   Loader2,
   Cpu,
-  Trash2,
+  Plus,
+  RefreshCw,
   Square,
   Copy,
   Check,
@@ -19,14 +20,23 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { api } from "@/lib/api";
-import { ChatMessage, ChatProvider } from "@/lib/types";
-import { notify } from "@/stores/useToastStore";
+import { RagControls } from "@/components/documents/RagControls";
+import { CitationList } from "@/components/documents/CitationList";
+import { ChatProvider, RagOptions } from "@/lib/types";
+import { useConversations } from "@/hooks/useConversations";
+import { useAuthStore } from "@/stores/useAuthStore";
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const userId = useAuthStore(state => state.user?.id);
+  return <ProtectedRoute><ChatWorkspace key={userId ?? "signed-out"} /></ProtectedRoute>;
+}
+
+function ChatWorkspace() {
+  const chat = useConversations();
+  const { messages, busy, streaming } = chat;
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [streaming, setStreaming] = useState(false);
+  const [rag, setRag] = useState<RagOptions>({ enabled: false, document_ids: [] });
+
   const [models, setModels] = useState<{ name: string }[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
   const [provider, setProvider] = useState<ChatProvider>("groq");
@@ -36,7 +46,7 @@ export default function ChatPage() {
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
+
 
   // Auto-scroll as words stream in
   useEffect(() => {
@@ -71,86 +81,12 @@ export default function ChatPage() {
   }, [requestedProvider]);
 
   async function handleSend(e?: React.FormEvent) {
-    if (e) e.preventDefault();
-    if (!input.trim() || streaming || !providerReady) return;
-
-    const userText = input.trim();
+    e?.preventDefault();
+    if (!input.trim() || busy || !providerReady || !chat.historyReady || (rag.enabled && !rag.document_ids.length)) return;
+    const text = input.trim();
     setInput("");
-
-    // Create current history with new user message
-    const userMsg: ChatMessage = { role: "user", content: userText };
-    const historyWithUser = [...messages, userMsg];
-
-    // Placeholder assistant message to stream words into
-    const assistantPlaceholder: ChatMessage = { role: "assistant", content: "" };
-    setMessages([...historyWithUser, assistantPlaceholder]);
-
-    setLoading(true);
-    setStreaming(true);
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    try {
-      await api.streamMessage(
-        historyWithUser,
-        selectedModel,
-        (token: string) => {
-          setLoading(false); // First token arrived, stop spinner
-          setMessages((prev) => {
-            const updated = [...prev];
-            const lastIndex = updated.length - 1;
-            if (lastIndex >= 0 && updated[lastIndex].role === "assistant") {
-              updated[lastIndex] = {
-                ...updated[lastIndex],
-                content: updated[lastIndex].content + token,
-              };
-            }
-            return updated;
-          });
-        },
-        () => {
-          setStreaming(false);
-          setLoading(false);
-        },
-        controller.signal,
-        provider
-      );
-    } catch (err: unknown) {
-      if (controller.signal.aborted) {
-        // User voluntarily stopped generation
-        setStreaming(false);
-        setLoading(false);
-        return;
-      }
-      const msg = err instanceof Error ? err.message : "Streaming failed";
-      notify(msg, "error");
-      setMessages((prev) => {
-        const updated = [...prev];
-        const lastIndex = updated.length - 1;
-        if (lastIndex >= 0 && updated[lastIndex].role === "assistant") {
-          updated[lastIndex] = {
-            ...updated[lastIndex],
-            content:
-              `${updated[lastIndex].content}${updated[lastIndex].content ? "\n\n" : ""}⚠️ ${msg}`,
-          };
-        }
-        return updated;
-      });
-    } finally {
-      setStreaming(false);
-      setLoading(false);
-      abortControllerRef.current = null;
-    }
-  }
-
-  function handleStop() {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      setStreaming(false);
-      setLoading(false);
-      notify("Generation stopped.", "info");
-    }
+    const submitted = await chat.send(text, provider, selectedModel, rag);
+    if (!submitted) setInput(text);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -160,12 +96,6 @@ export default function ChatPage() {
     }
   }
 
-  function clearChat() {
-    if (streaming) handleStop();
-    setMessages([]);
-    notify("Conversation cleared.", "info");
-  }
-
   function copyToClipboard(text: string, idx: number) {
     void navigator.clipboard.writeText(text);
     setCopiedIdx(idx);
@@ -173,21 +103,20 @@ export default function ChatPage() {
   }
 
   return (
-    <ProtectedRoute>
-      <div className="flex flex-col h-[calc(100vh-6rem)] max-w-4xl mx-auto">
-        {/* Chat Top Bar */}
-        <div className="flex items-center justify-between pb-4 border-b border-[#e8dfd3] dark:border-[#322b22]">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight text-[#2a241e] dark:text-[#f3eee7]">
-                AI Chat
+    <div className="flex flex-col flex-1 h-full max-w-4xl mx-auto w-full min-h-0">
+      {/* Chat Top Bar */}
+      <div className="flex items-center justify-between pb-3 sm:pb-4 border-b border-[#e8dfd3] dark:border-[#322b22] shrink-0">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="max-w-full truncate text-xl font-bold tracking-tight text-[#2a241e] dark:text-[#f3eee7]">
+                {chat.conversations.find(item => item.id === chat.activeId)?.title ?? "New chat"}
               </h1>
               <div className="flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold rounded-full bg-[#f7f0e3] dark:bg-[#2b2216] text-[#96743d] dark:text-[#d4af6a] border border-[#e8dfd3] dark:border-[#3a2e1d]">
                 <Cpu className="w-3.5 h-3.5" />
                 <select
                   aria-label="Chat provider"
                   value={requestedProvider ?? provider}
-                  disabled={streaming}
+                  disabled={busy}
                   onChange={(e) => {
                     setProviderReady(false);
                     setRequestedProvider(e.target.value as ChatProvider);
@@ -201,8 +130,8 @@ export default function ChatPage() {
                   aria-label="Chat model"
                   value={selectedModel}
                   onChange={(e) => setSelectedModel(e.target.value)}
-                  disabled={streaming}
-                  className="bg-transparent border-none text-xs font-medium focus:outline-none cursor-pointer"
+                  disabled={busy}
+                  className="max-w-40 sm:max-w-64 bg-transparent border-none text-xs font-medium focus:outline-none cursor-pointer"
                 >
                   {models.length > 0 ? (
                     models.map((m) => (
@@ -221,20 +150,43 @@ export default function ChatPage() {
             </p>
           </div>
 
-          {messages.length > 0 && (
+          <div className="flex items-center gap-1.5 shrink-0">
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
-              onClick={clearChat}
-              className="text-[#827566] hover:text-red-600 gap-1.5 text-xs cursor-pointer"
+              disabled={busy}
+              onClick={() => {
+                chat.newConversation();
+                setInput("");
+              }}
+              aria-label="Start new chat"
+              className="h-8 px-2.5 text-xs gap-1.5 border-[#e8dfd3] dark:border-[#382f25] text-[#5e5141] dark:text-[#c4b5a3] hover:bg-[#ede3d4] dark:hover:bg-[#252019] cursor-pointer"
             >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Clear</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">New chat</span>
             </Button>
-          )}
+            {chat.activeId && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => void chat.openConversation(chat.activeId!)}
+                aria-label="Reload current conversation"
+                className="h-8 w-8 p-0 cursor-pointer"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
         </div>
 
         {providerError && <p role="alert" className="py-3 text-sm text-red-600">{providerError}</p>}
+
+        {chat.error && <p role="alert" className="py-2 text-sm text-red-600">{chat.error}</p>}
+        {busy && !streaming && <p role="status" className="py-2 text-sm">Loading conversation…</p>}
+        {messages.some(message => message.status === "streaming") && !busy && <p role="status" className="py-2 text-sm">An answer is still being saved or generated. Reload to check its status.</p>}
+
+        <RagControls value={rag} onChange={setRag} disabled={busy} />
 
         {/* Message Thread */}
         <div className="flex-1 overflow-y-auto py-6 space-y-6 pr-2">
@@ -273,7 +225,7 @@ export default function ChatPage() {
           ) : (
             messages.map((m, idx) => (
               <div
-                key={idx}
+                key={m.id}
                 className={`flex gap-3.5 group ${m.role === "user" ? "justify-end" : "justify-start"
                   }`}
               >
@@ -298,13 +250,17 @@ export default function ChatPage() {
                       ) : (
                         <div className="flex items-center gap-2 text-[#827566] py-1 text-xs">
                           <Loader2 className="w-3.5 h-3.5 animate-spin text-[#96743d]" />
-                          <span>Generating answer…</span>
+                          <span>{m.status === "streaming" ? "Generating answer…" : "No answer was generated."}</span>
                         </div>
                       )}
                     </div>
                   ) : (
                     m.content
                   )}
+
+                  {m.role === "assistant" && ["error", "interrupted"].includes(m.status) && <p className="mt-2 text-xs text-amber-700">{m.status === "interrupted" ? "Generation stopped" : "Generation failed"} · partial answer</p>}
+
+                  {m.role === "assistant" && Boolean(m.citations?.length) && <CitationList citations={m.citations!} />}
 
                   {/* Copy button for assistant responses */}
                   {m.role === "assistant" && m.content && (
@@ -340,6 +296,7 @@ export default function ChatPage() {
           className="mt-2 rounded-2xl border border-[#e8dfd3] dark:border-[#322b22] bg-white dark:bg-[#1a1714] p-3 shadow-md relative"
         >
           <Textarea
+            disabled={busy}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -360,7 +317,7 @@ export default function ChatPage() {
               {streaming ? (
                 <Button
                   type="button"
-                  onClick={handleStop}
+                  onClick={chat.stop}
                   className="bg-[#2a241e] hover:bg-black text-white gap-1.5 px-3.5 h-8 text-xs rounded-lg cursor-pointer"
                 >
                   <Square className="w-3 h-3 fill-white" />
@@ -369,7 +326,7 @@ export default function ChatPage() {
               ) : (
                 <Button
                   type="submit"
-                  disabled={!input.trim() || loading || !providerReady}
+                  disabled={!input.trim() || busy || !providerReady || !chat.historyReady || (rag.enabled && !rag.document_ids.length) || messages.some(message => message.status === "streaming")}
                   className="bg-[#96743d] hover:bg-[#83632f] disabled:opacity-40 text-white gap-1.5 px-4 h-8 text-xs rounded-lg cursor-pointer shadow-xs"
                 >
                   <span>Send</span>
@@ -379,7 +336,6 @@ export default function ChatPage() {
             </div>
           </div>
         </form>
-      </div>
-    </ProtectedRoute>
+    </div>
   );
 }

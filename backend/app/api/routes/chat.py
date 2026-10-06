@@ -77,7 +77,8 @@ async def chat_message(req: ChatRequest, current_user: CurrentUser):
     service, default_model = get_chat_service(req.provider)
     try:
         result = await service.chat(
-            messages=[m.model_dump() for m in req.messages], model=req.model or default_model
+            messages=[m.model_dump() for m in req.messages],
+            model=req.model or default_model
         )
         return ChatResponse(
             message=ChatMessage(
@@ -97,7 +98,8 @@ async def stream_chat_message(req: ChatRequest, current_user: CurrentUser):
 
     async def events():
         iterator = service.stream_chat(
-            messages=[m.model_dump() for m in req.messages], model=req.model or default_model
+            messages=[m.model_dump() for m in req.messages],
+            model=req.model or default_model
         )
         try:
             async for event in iterator:

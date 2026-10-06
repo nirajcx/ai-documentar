@@ -1,6 +1,6 @@
 # Ubuntu homelab setup
 
-This guide covers the existing Docker host at `niraj@homelab`. After pushing the repository, clone it on that host. **Scaffold only:** working pages and health checks do not mean document RAG is implemented. Run commands from the repository root unless stated otherwise.
+This guide covers the existing Docker host at `niraj@homelab`. After pushing the repository, clone it on that host. The baseline RAG backend is implemented. Verify dependencies and the upload-to-answer flow before enabling it. This guide provisions a NEW database; to reuse existing PostgreSQL, read [operations](operations.md) and use the app-only runtime. Run commands from the repository root unless stated otherwise.
 
 ## 1. Host prerequisites
 
@@ -53,10 +53,10 @@ Set these values:
 | `CORS_ORIGINS` | Exact UI browser origin as JSON, default `["http://localhost:3000"]` |
 | `S3_ENDPOINT_URL` | `http://host.docker.internal:9000` for existing Ubuntu `lab-minio` host-published port |
 | `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | Your existing MinIO application credentials, never `NEXT_PUBLIC_*` |
-| `S3_BUCKET` / `S3_REGION` | Your intended bucket/region; scaffold creates neither |
+| `S3_BUCKET` / `S3_REGION` | Your intended bucket/region; create a private bucket before uploading |
 | `OLLAMA_BASE_URL` | `http://MAC_LAN_OR_VPN_IP:11434`, replace placeholder |
 
-Storage credentials can stay blank for scaffold-only startup. No service probes or modifies MinIO/Ollama. Credentials and actual `.env.ubuntu` must not be pushed.
+Working storage credentials and a pulled embedding model are required for document ingestion. Set `RAG_ENABLED=true` only after migration and dependency checks. Set `RATE_LIMIT_ENABLED=true` for shared request throttles. Credentials and actual `.env.ubuntu` must not be pushed.
 
 ## 3. Build and start
 
@@ -73,14 +73,16 @@ dc run --rm --no-deps api alembic upgrade head
 dc up -d --wait
 dc ps
 curl --fail http://127.0.0.1:8001/api/v1/health
+# Allow the scheduler to deliver its first heartbeat, then:
+curl --fail http://127.0.0.1:8001/api/v1/ready
 curl --fail --output /dev/null http://127.0.0.1:3000/chat
 ```
 
-Expected API response: `{"status":"ok"}`. No fake migration exists; later releases will apply actual reviewed migrations through this single one-off command. Do not put migration execution into every API/worker startup.
+Expected API response: `{"status":"ok"}`. Current migrations create authentication, conversation and document tables, enable pgvector and add citation snapshots. Do not put migration execution into every API/worker startup.
 
 Project name is `documentar-prod`; Compose creates isolated network and named volumes (`documentar-prod_postgres-data`, `documentar-prod_redis-data` under the default project name). No `container_name` collisions. PostgreSQL 17 + pgvector uses a **new** volume, not the existing PostgreSQL 16 volume. Never mount `lab-db-1`'s PG16 data directory into PG17. Redis is also dedicated; existing queues/key prefixes aren't reused.
 
-No services bind `80`, `8000`, `9000`, `9001`, `6379`, `8080` or `5432` on the Ubuntu host. There is no need to delete old containers before trying this scaffold.
+No services bind `80`, `8000`, `9000`, `9001`, `6379`, `8080` or `5432` on the Ubuntu host. There is no need to delete old containers before starting this stack.
 
 ## 4. Open from your Mac
 
@@ -118,15 +120,15 @@ curl --fail http://192.168.1.50:8001/api/v1/health
 
 Browser: `http://192.168.1.50:3000/chat`. Use your actual IP, not the example. After binding only to the LAN IP, use that IP for host curl checks too. If using a hostname in browser, its exact origin must be in CORS. Public API URL changes require frontend **rebuild**, not just restart.
 
-This exposes an unauthenticated scaffold to that reachable network. Keep it on a trusted LAN/VPN; no router port forwarding. Docker-published ports may bypass ordinary UFW rules; do not assume a UFW rule alone protects them. See [Docker port publishing](https://docs.docker.com/engine/network/port-publishing/) and [Ubuntu firewall caveats](https://docs.docker.com/engine/install/ubuntu/#firewall-limitations). HTTPS/auth/reverse proxy are future work.
+This exposes the authenticated application to that reachable network. Production cookies require HTTPS; configure a TLS reverse proxy before non-local browser access. Keep it on a trusted LAN/VPN; no router port forwarding. Docker-published ports may bypass ordinary UFW rules; do not assume a UFW rule alone protects them. See [Docker port publishing](https://docs.docker.com/engine/network/port-publishing/) and [Ubuntu firewall caveats](https://docs.docker.com/engine/install/ubuntu/#firewall-limitations). Authentication is implemented; TLS and reverse-proxy setup remain deployment-specific.
 
 ## 5. MinIO and native Mac Ollama
 
 `lab-minio` stays running on Ubuntu ports 9000/9001. S3 API is 9000, console is 9001. Our API/worker map `host.docker.internal` to the Ubuntu Docker host gateway. They use its published MinIO API; joining the old Compose network is not required. Host firewall/routing must permit that bridge-to-host connection. `localhost:9000` **inside the API container** would address the API container, not MinIO.
 
-For Ollama, Ubuntu's `host.docker.internal` does **not** mean your Mac. Use a Mac LAN/VPN address reachable from Ubuntu. The Mac must stay awake, Ollama must listen on that reachable interface, and its firewall must allow the Ubuntu host. For a manually managed Ollama process, configure `OLLAMA_HOST` in its launch environment (e.g. `OLLAMA_HOST=0.0.0.0:11434 ollama serve`); don't launch a second server if the native app already manages one. Limit access to trusted hosts/VPN. This scaffold does not install Ollama, change its configuration or download models.
+For Ollama, Ubuntu's `host.docker.internal` does **not** mean your Mac. Use a Mac LAN/VPN address reachable from Ubuntu. The Mac must stay awake, Ollama must listen on that reachable interface, and its firewall must allow the Ubuntu host. For a manually managed Ollama process, configure `OLLAMA_HOST` in its launch environment (e.g. `OLLAMA_HOST=0.0.0.0:11434 ollama serve`); don't launch a second server if the native app already manages one. Limit access to trusted hosts/VPN. This stack does not install Ollama, change its configuration or download models.
 
-Future connectivity checks, only when you are ready to contact these services:
+Dependency connectivity checks:
 
 ```sh
 # Ubuntu host; these are read-only health/list requests.
@@ -135,14 +137,14 @@ curl --fail http://127.0.0.1:9000/minio/health/live
 curl --fail http://MAC_IP:11434/api/tags
 ```
 
-A successful host request doesn't prove Docker bridge access; use a container-side read-only check later if integration fails. No generation calls are implemented yet.
+A successful host request doesn't prove Docker bridge access; use a container-side read-only check later if integration fails. Embedding and chat generation calls are implemented. Check `/api/v1/ready` from the API deployment and run the documented end-to-end smoke.
 
 ## 6. Daily operation and updates
 
 ```sh
 dc ps
-dc logs --tail=100 api worker web
-dc logs -f api worker
+dc logs --tail=100 api worker scheduler web
+dc logs -f api worker scheduler
 # After a temporary stop:
 dc stop
 dc start
@@ -158,13 +160,13 @@ dc exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > 
 git pull --ff-only
 dc build
 # Maintenance window: prevent old code from querying a changing schema.
-dc stop web api worker
+dc stop web api worker scheduler
 dc run --rm --no-deps api alembic upgrade head
 # Continue only when migration succeeds:
 dc up -d --wait
 ```
 
-If migration fails, inspect logs and fix/recover before restarting application services. Do not blindly rerun destructive migrations. Version-dependent restore/downgrade needs planning; copying an image back doesn't undo DB schema changes. `.env.ubuntu` remains local across `git pull`. Keep MinIO backup lifecycle separate; uploads will live there in future.
+If migration fails, inspect logs and fix/recover before restarting application services. Do not blindly rerun destructive migrations. Version-dependent restore/downgrade needs planning; copying an image back doesn't undo DB schema changes. `.env.ubuntu` remains local across `git pull`. Keep MinIO backup lifecycle separate; original uploads live there.
 
 ```sh
 # Remove this stack's containers/network, retaining database/Redis data:
@@ -182,4 +184,4 @@ dc down
 - **Build killed:** check `free -h`/`df -h`; frontend build needs memory and downloads. Build one image at a time or adjust host resources based on logs.
 - **Mac not reachable:** check IP, VPN/routing, sleep, Ollama listen interface and firewall; don't change Docker service names to solve external routing.
 
-Local scaffold checks can pass without Docker. Image builds, Linux runtime, worker health, database startup and host-to-container routing must still be verified on your Ubuntu host; the editing environment had no running Docker daemon.
+The app-only runtime has been built and tested against the existing local Docker services. Ubuntu routing, HTTPS, secret provisioning and backups must still be verified on the actual Ubuntu host. Do not infer remote deployment success from local tests.

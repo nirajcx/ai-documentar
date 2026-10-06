@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatMessage(BaseModel):
@@ -9,6 +9,8 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    # Legacy general-chat endpoints must reject unsupported RAG options.
+    model_config = ConfigDict(extra="forbid")
     messages: list[ChatMessage] = Field(min_length=1)
     model: str | None = Field(default=None, min_length=1)
     provider: Literal["groq", "ollama"] | None = None

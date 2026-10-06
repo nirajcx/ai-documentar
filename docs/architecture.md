@@ -1,18 +1,32 @@
 # Architecture boundaries
 
-`frontend` is a Next.js App Router UI. `backend` owns FastAPI HTTP routes and the separately started Celery worker. PostgreSQL (pgvector-capable) and Redis are Compose services. MinIO and native Mac Ollama remain external. The scaffold has no product tables or integration calls.
+The Next.js frontend calls FastAPI under `/api/v1`. FastAPI owns authentication, documents and conversation history; a separate Celery worker indexes PDFs. PostgreSQL stores users, sessions, chats, documents, chunks and pgvector embeddings. Redis delivers jobs and shares request counters. Private S3/MinIO holds original PDFs. Ollama supplies embeddings; Groq or Ollama supplies answers.
 
-Future flow: browser → API → existing MinIO for documents; API → Redis/Celery for ingestion; workers → parsing/OCR → chunks/embeddings → PostgreSQL; API → retrieval and external Ollama → streamed answers and citations. Exact upload authorization, job reliability, embedding model and schemas remain design work.
+## Ingestion
 
-- `app/api/routes`: versioned HTTP endpoints. Only health exists.
-- `app/db/models`, `migrations/versions`: future SQLAlchemy models and reviewed migrations. `Base` only establishes shared metadata and naming conventions.
-- `app/schemas`: future request/response contracts.
-- `app/services/storage`, `ingestion`, `retrieval`, `llm`: future boto3, Docling/OCR, embeddings/vector retrieval, and async httpx integrations respectively.
-- `app/workers/tasks`: future Celery jobs. No sample jobs or scheduled work.
-- `src/features/chat`, `documents`: future feature-specific UI/hooks. Empty until needed.
+Authenticated multipart upload → bounded body/PDF validation → account quota and SHA-256 dedupe → private object storage → committed `queued` document row → beat dispatch task → worker atomic lease claim → parse → page-aware chunks → embedding batches → atomic ready publication.
 
-Persisted documents/conversations belong to the server; TanStack Query will fetch, cache and mutate them. Sidebar state, selection and temporary stream state belong in local React state or Zustand as appropriate. Do not duplicate permanent server data in Zustand. The current store contains only mobile navigation state; the query provider makes no requests.
+The document row is the durable queue intent. Redis publication failures leave it queued for subsequent dispatch. Celery may deliver repeatedly, so job tokens, version checks and expiring leases guard writes. Hard-killed jobs can be reclaimed after the lease expires. A dedicated `documentar` queue separates ingestion from unrelated Celery workloads. Run exactly one beat scheduler for each deployment.
 
-Future chat transport: POST using Fetch streaming and AbortController. Consume correctly framed SSE: decode incrementally across network chunks, retain incomplete frames, handle CRLF/LF and multi-line `data:` fields, and parse only complete events. Define completion/error events and cancellation behavior. Do not assume each read is an event or rely on GET-only EventSource for POST. No streaming implementation exists yet.
+## Answer generation
 
-Health is process liveness only. Application startup does not reach storage, models or the database. Workers use Redis for job delivery and currently ignore task results; eventual durable job status belongs in PostgreSQL. Alembic runs as one explicit administrative step, never concurrently in API/worker startup. pgvector is available in the image but not enabled by a fake migration.
+Authenticated question + 1–20 selected ready document IDs → authorize every document and index compatibility → embed a bounded question with recent user context → owner-filtered exact cosine retrieval → bounded evidence/source map → model generation → citation validation → atomic answer/citation persistence → SSE content/citations/done.
+
+General chat streams incrementally. RAG output is buffered until source labels validate and the database commit succeeds. Unknown sources and unsupported uncited assertions fail rather than silently falling back. A saved citation is a JSONB snapshot, so deleting the PDF does not erase its historic excerpt. Valid labels do not establish semantic correctness of every claim.
+
+## Boundaries
+
+- Routes: authentication and HTTP contracts; services: orchestration; repositories: database access.
+- Parser: disposable subprocess with wall/CPU limits, Linux memory limit, page/text/size limits. No OCR engine is installed.
+- Embedding client: `/api/embed`, no silent truncation, count/dimension/finite/nonzero checks, model digest compatibility.
+- Session validation: PostgreSQL expiry/revocation/account state is authoritative on every request. Redis cache entries cannot authorize users.
+- Limits: 25 MB PDF, 26 MB HTTP body, account count/bytes quota. Optional shared Redis throttles; configured production runtime enables them and fails closed when Redis is unavailable.
+- Browser state: document selection and temporary generation state are local. Database remains authoritative for saved documents/messages/citations.
+- `/health`: process liveness. `/ready`: database migration/extension, Redis, dispatcher heartbeat, storage bucket and embedding model availability. It does not probe the chat provider or replace end-to-end tests.
+- The dispatcher heartbeat proves a scheduled task reached a worker. A stale heartbeat makes readiness fail; it does not itself restart a process. Docker restart policies handle process exits, not every possible deadlock.
+
+## Deployment choices
+
+`compose.runtime.yml` is the app-only runtime for existing infrastructure; it must not create or upgrade a database volume. Local environment generation translates localhost dependency endpoints into `host.docker.internal`. `compose.prod.yml` provisions a separate PostgreSQL 17/Redis stack for a new installation. The current existing Docker database is PostgreSQL 18. These are separate deployment choices: never mount a PG18 volume into PG17.
+
+Migrations run as an explicit administrative step after backup. Production API cookies require Secure/HTTPS (localhost browser exceptions are browser-dependent). Public serving still requires a domain, TLS reverse proxy, access/network configuration, off-host backup retention and monitoring. See [operations](operations.md).

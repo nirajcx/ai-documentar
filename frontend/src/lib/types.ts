@@ -38,3 +38,49 @@ export interface ChatModelsResponse {
   configured: boolean;
   models: { name: string }[];
 }
+
+export interface Conversation {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SavedChatMessage extends ChatMessage {
+  citations?: Citation[];
+  id: string;
+  role: "user" | "assistant";
+  status: "streaming" | "complete" | "interrupted" | "error";
+  position: number;
+  request_id: string;
+}
+
+export interface ConversationDetail extends Conversation {
+  messages: SavedChatMessage[];
+}
+
+export type DocumentStatus = "queued" | "parsing" | "chunking" | "embedding" | "ready" | "needs_ocr" | "failed";
+export interface KnowledgeDocument {
+  id: string;
+  filename: string;
+  size_bytes: number;
+  status: DocumentStatus;
+  page_count: number | null;
+  chunk_count: number;
+  progress: number | null;
+  error: string | null;
+  created_at: string;
+}
+export interface Citation {
+  label: string;
+  document_id: string;
+  chunk_id: string;
+  filename: string;
+  page_start: number;
+  page_end: number;
+  excerpt: string;
+}
+export interface RagOptions {
+  enabled: boolean;
+  document_ids: string[];
+}

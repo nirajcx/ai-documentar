@@ -1,12 +1,15 @@
-import json
+import asyncio
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
-from app.core.redis import get_redis
-from app.core.security import SESSION_EXPIRE_HOURS, generate_session_token, hash_password, verify_password
+from app.core.security import (
+    SESSION_EXPIRE_HOURS,
+    generate_session_token,
+    hash_password,
+    verify_password,
+)
 from app.repositories.session_repository import SessionRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth import LoginRequest, LoginResponse, LogoutResponse
@@ -41,7 +44,7 @@ class AuthService:
             )
 
         # Step 3: Hash plain-text password using Argon2id
-        hashed = hash_password(user_create.password)
+        hashed = await asyncio.to_thread(hash_password, user_create.password)
 
         # Step 4: Persist new user in database
         user = await self.user_repo.create(
@@ -57,7 +60,9 @@ class AuthService:
         user = await self.user_repo.get_by_email(login_req.email)
 
         # Step 2: Constant-time password verification
-        if not user or not verify_password(login_req.password, user.hashed_password):
+        if not user or not await asyncio.to_thread(
+            verify_password, login_req.password, user.hashed_password
+        ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password",
@@ -82,24 +87,6 @@ class AuthService:
             token=token,
             expires_at=expires_at,
         )
-
-        # Step 7: Warm up Redis cache
-        try:
-            redis = await get_redis()
-            if redis:
-                await redis.setex(
-                    f"session:{token}",
-                    300,  # 5 minutes
-                    json.dumps({
-                        "id": str(user.id),
-                        "email": user.email,
-                        "username": user.username,
-                        "is_active": user.is_active,
-                        "created_at": user.created_at.isoformat() if user.created_at else datetime.utcnow().isoformat(),
-                    }),
-                )
-        except Exception:
-            pass
 
         return LoginResponse(
             session_token=token,

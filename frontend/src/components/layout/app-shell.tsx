@@ -1,4 +1,5 @@
 "use client";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -12,27 +13,96 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PlusCircle,
+  RefreshCw,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui";
 import { useAuthStore } from "@/stores/useAuthStore";
+import { useConversationStore } from "@/stores/useConversationStore";
 import { cn } from "@/lib/utils";
 
-const navigation = [
-  { href: "/chat", label: "Chat", icon: MessageSquare },
-  { href: "/documents", label: "Documents", icon: Files },
-];
+function formatConversationDate(dateStr: string): string {
+  try {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return "";
+    const now = new Date();
+    const isToday =
+      date.getDate() === now.getDate() &&
+      date.getMonth() === now.getMonth() &&
+      date.getFullYear() === now.getFullYear();
+
+    if (isToday) {
+      return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    }
+
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const isYesterday =
+      date.getDate() === yesterday.getDate() &&
+      date.getMonth() === yesterday.getMonth() &&
+      date.getFullYear() === yesterday.getFullYear();
+
+    if (isYesterday) {
+      return "Yesterday";
+    }
+
+    const daysDiff = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysDiff < 7) {
+      return date.toLocaleDateString([], { weekday: "short" });
+    }
+
+    return date.toLocaleDateString([], { month: "short", day: "numeric" });
+  } catch {
+    return "";
+  }
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const pathname = usePathname();
   const { sidebarOpen, sidebarCollapsed, toggleSidebar, closeSidebar, toggleSidebarCollapse } = useUIStore();
   const { user, logout, refreshProfile } = useAuthStore();
+  const {
+    conversations,
+    activeId,
+    listLoading,
+    listError,
+    refreshList,
+    openConversation,
+    newConversation,
+    initialize,
+  } = useConversationStore();
+
   const [mounted, setMounted] = useState(false);
+  const [recentChatsOpen, setRecentChatsOpen] = useState(true);
 
   useEffect(() => {
     setMounted(true);
     refreshProfile();
   }, [refreshProfile]);
+
+  useEffect(() => {
+    if (user) {
+      initialize();
+    }
+  }, [user, initialize]);
+
+  const handleNewChat = () => {
+    newConversation();
+    if (sidebarOpen) closeSidebar();
+    if (pathname !== "/chat") {
+      router.push("/chat");
+    }
+  };
+
+  const handleSelectConversation = (id: string) => {
+    void openConversation(id);
+    if (sidebarOpen) closeSidebar();
+    if (pathname !== "/chat") {
+      router.push(`/chat?conversation=${id}`);
+    }
+  };
 
   // If user is not logged in, render clean full-width shell without the sidebar
   if (!mounted || !user) {
@@ -80,11 +150,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           sidebarCollapsed ? "md:w-16" : "md:w-64"
         )}
       >
-        {/* Top Section */}
-        <div className="p-3">
+        {/* Top & Scrollable Middle Section */}
+        <div className="flex-1 flex flex-col min-h-0 p-3 overflow-hidden">
+          {/* Brand & Collapse Header */}
           <div
             className={cn(
-              "flex items-center gap-2 mb-3 px-2 py-1.5",
+              "flex items-center gap-2 mb-3 px-2 py-1.5 shrink-0",
               sidebarCollapsed ? "justify-center" : "justify-between"
             )}
           >
@@ -118,46 +189,180 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Quick Action Button: New Chat */}
-          <Link
-            href="/chat"
-            onClick={closeSidebar}
+          <button
+            onClick={handleNewChat}
             className={cn(
-              "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-semibold bg-[#96743d] hover:bg-[#83632f] text-white shadow-sm transition mb-4",
+              "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-semibold bg-[#96743d] hover:bg-[#83632f] text-white shadow-sm transition mb-3 w-full cursor-pointer shrink-0",
               sidebarCollapsed ? "justify-center px-0" : ""
             )}
             title="New Chat"
           >
             <PlusCircle className="w-4 h-4 shrink-0" />
-            {!sidebarCollapsed && <span className="truncate">New Chat</span>}
-          </Link>
+            {!sidebarCollapsed && <span className="truncate font-semibold">New Chat</span>}
+          </button>
 
-          {/* Main Navigation Links */}
-          <nav aria-label="Main navigation" className="space-y-1">
-            {navigation.map(({ href, label, icon: Icon }) => {
-              const active = pathname === href;
-              return (
+          {/* Main Navigation & Nested Recent Chats */}
+          <nav aria-label="Main navigation" className="flex-1 flex flex-col min-h-0 space-y-1 overflow-hidden">
+            {/* Chat Nav Item & Sub-list */}
+            <div className="flex flex-col min-h-0">
+              <div
+                className={cn(
+                  "flex items-center rounded-lg text-xs font-medium transition text-[#5e5141] dark:text-[#c4b5a3] hover:bg-[#ede3d4] dark:hover:bg-[#252019] group",
+                  pathname === "/chat" && "bg-[#eddcc2]/70 dark:bg-[#342a1d] text-[#63491f] dark:text-[#e4c48b] font-semibold shadow-xs",
+                  sidebarCollapsed ? "justify-center" : "justify-between pr-1"
+                )}
+              >
                 <Link
-                  key={href}
-                  href={href}
-                  onClick={closeSidebar}
-                  aria-current={active ? "page" : undefined}
+                  href="/chat"
+                  onClick={() => {
+                    if (sidebarOpen) closeSidebar();
+                  }}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium transition text-[#5e5141] dark:text-[#c4b5a3] hover:bg-[#ede3d4] dark:hover:bg-[#252019]",
-                    active && "bg-[#eddcc2]/70 dark:bg-[#342a1d] text-[#63491f] dark:text-[#e4c48b] font-semibold shadow-xs",
-                    sidebarCollapsed && "justify-center px-0"
+                    "flex items-center gap-3 py-2 flex-1 min-w-0",
+                    sidebarCollapsed ? "justify-center px-0 w-full" : "px-3"
                   )}
-                  title={label}
+                  title={conversations.length > 0 ? `Chat (${conversations.length} recent)` : "Chat"}
                 >
-                  <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
-                  {!sidebarCollapsed && <span className="truncate">{label}</span>}
+                  <MessageSquare className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  {!sidebarCollapsed && <span className="truncate">Chat</span>}
                 </Link>
-              );
-            })}
+
+                {/* Sub-menu toggle chevron (only when expanded) */}
+                {!sidebarCollapsed && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setRecentChatsOpen((prev) => !prev);
+                    }}
+                    className="p-1 rounded-md text-[#827566] hover:text-[#4a3b26] dark:hover:text-[#f3eee7] hover:bg-[#e4d8c7] dark:hover:bg-[#32271a] transition cursor-pointer"
+                    title={recentChatsOpen ? "Collapse recent chats" : "Expand recent chats"}
+                    aria-label={recentChatsOpen ? "Collapse recent chats" : "Expand recent chats"}
+                  >
+                    <ChevronDown
+                      className={cn(
+                        "w-3.5 h-3.5 transition-transform duration-200",
+                        !recentChatsOpen && "-rotate-90"
+                      )}
+                    />
+                  </button>
+                )}
+              </div>
+
+              {/* Recent Chats Nested List under Chat */}
+              {!sidebarCollapsed && recentChatsOpen && (
+                <div className="flex-1 flex flex-col min-h-0 mt-1 mb-2 ml-2 pl-2 border-l border-[#e8dfd3] dark:border-[#322b22]">
+                  {/* Recent Chats Sub-header */}
+                  <div className="flex items-center justify-between px-2 py-1 text-[11px] font-semibold tracking-wider text-[#827566] dark:text-[#a89b8c] uppercase shrink-0">
+                    <span className="flex items-center gap-1.5">
+                      <span>Recent</span>
+                      {conversations.length > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#ede3d4] dark:bg-[#2e261c] text-[#7a5d30] dark:text-[#d4af6a] font-normal">
+                          {conversations.length}
+                        </span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void refreshList();
+                      }}
+                      disabled={listLoading}
+                      title="Refresh chats"
+                      className="p-1 rounded text-[#827566] hover:text-[#4a3b26] dark:hover:text-[#f3eee7] hover:bg-[#ede3d4] dark:hover:bg-[#27221b] transition disabled:opacity-40 cursor-pointer"
+                    >
+                      <RefreshCw className={cn("w-3 h-3", listLoading && "animate-spin")} />
+                    </button>
+                  </div>
+
+                  {/* Conversations List Scrollable Container */}
+                  <div className="flex-1 overflow-y-auto max-h-[calc(100dvh-380px)] space-y-0.5 pr-1 custom-scrollbar">
+                    {listLoading && conversations.length === 0 && (
+                      <div className="space-y-1.5 py-1 px-2">
+                        <div className="h-6 rounded bg-[#ede3d4]/60 dark:bg-[#252019] animate-pulse" />
+                        <div className="h-6 rounded bg-[#ede3d4]/40 dark:bg-[#252019]/70 animate-pulse" />
+                        <div className="h-6 rounded bg-[#ede3d4]/30 dark:bg-[#252019]/40 animate-pulse" />
+                      </div>
+                    )}
+
+                    {listError && (
+                      <div className="px-2 py-1.5 text-xs text-red-600">
+                        <p className="truncate text-[11px]">{listError}</p>
+                        <button
+                          onClick={() => void refreshList()}
+                          className="underline text-[10px] text-[#96743d] hover:text-[#7a5d30] mt-0.5 cursor-pointer"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    )}
+
+                    {!listLoading && !listError && conversations.length === 0 && (
+                      <p className="px-2 py-2 text-[11px] text-[#827566] dark:text-[#a89b8c] italic">
+                        No recent chats yet
+                      </p>
+                    )}
+
+                    {conversations.map((conv) => {
+                      const isActive = pathname === "/chat" && activeId === conv.id;
+                      return (
+                        <button
+                          key={conv.id}
+                          onClick={() => handleSelectConversation(conv.id)}
+                          title={conv.title}
+                          className={cn(
+                            "w-full text-left rounded-lg px-2 py-1.5 text-xs transition flex items-center gap-2 group cursor-pointer",
+                            isActive
+                              ? "bg-[#eeddc4] dark:bg-[#342a1d] text-[#63491f] dark:text-[#e4c48b] font-semibold shadow-2xs"
+                              : "text-[#5e5141] dark:text-[#c4b5a3] hover:bg-[#ede3d4]/70 dark:hover:bg-[#252019] hover:text-[#2a241e] dark:hover:text-[#f3eee7]"
+                          )}
+                        >
+                          <MessageSquare
+                            className={cn(
+                              "w-3.5 h-3.5 shrink-0 transition",
+                              isActive
+                                ? "text-[#96743d] dark:text-[#d4af6a]"
+                                : "text-[#a89b8c] group-hover:text-[#6e5d48]"
+                            )}
+                          />
+                          <span className="truncate flex-1 min-w-0 text-[11px]">
+                            {conv.title}
+                          </span>
+                          <span className="text-[10px] text-[#a89b8c] shrink-0 font-normal opacity-70 group-hover:opacity-100">
+                            {formatConversationDate(conv.updated_at)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Documents Navigation Item */}
+            <Link
+              href="/documents"
+              onClick={() => {
+                if (sidebarOpen) closeSidebar();
+              }}
+              aria-current={pathname === "/documents" ? "page" : undefined}
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium transition text-[#5e5141] dark:text-[#c4b5a3] hover:bg-[#ede3d4] dark:hover:bg-[#252019] shrink-0",
+                pathname === "/documents" && "bg-[#eddcc2]/70 dark:bg-[#342a1d] text-[#63491f] dark:text-[#e4c48b] font-semibold shadow-xs",
+                sidebarCollapsed && "justify-center px-0"
+              )}
+              title="Documents"
+            >
+              <Files className="w-4 h-4 shrink-0" aria-hidden="true" />
+              {!sidebarCollapsed && <span className="truncate">Documents</span>}
+            </Link>
           </nav>
         </div>
 
         {/* Bottom User Profile Section */}
-        <div className="p-3 border-t border-[#e8dfd3] dark:border-[#322b22]">
+        <div className="p-3 border-t border-[#e8dfd3] dark:border-[#322b22] shrink-0">
           <div
             className={cn(
               "flex items-center gap-2 rounded-xl p-2 bg-white dark:bg-[#1f1b17] border border-[#e8dfd3] dark:border-[#322b22] shadow-sm",
@@ -221,7 +426,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main id="main" className="flex-1 w-full max-w-5xl mx-auto p-4 sm:p-6 md:p-8">
+        <main
+          id="main"
+          className={cn(
+            "flex-1 w-full min-w-0",
+            pathname === "/chat"
+              ? "h-[calc(100dvh-3.5rem)] md:h-dvh flex flex-col p-3 sm:p-5 md:p-6 overflow-hidden"
+              : "max-w-5xl mx-auto p-4 sm:p-6 md:p-8"
+          )}
+        >
           {children}
         </main>
       </div>

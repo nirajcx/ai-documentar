@@ -1,8 +1,8 @@
-# Documentar — document RAG scaffold
+# Documentar — document RAG
 
 Goal: upload multiple documents to the existing MinIO instance, parse/OCR, chunk and embed them in the background, retrieve relevant content from PostgreSQL/pgvector, and provide streamed chat answers with citations and feedback.
 
-**Document RAG is still under development.** The application includes authentication and streamed chat through Groq or Ollama, alongside database and worker configuration. Document ingestion, OCR, embeddings, retrieval and source-grounded answers remain future work. See the Groq and Ollama chat section below for provider setup.
+The application implements authenticated PDF upload, background indexing, Ollama embeddings, PostgreSQL/pgvector retrieval, Groq/Ollama answers and persisted source citations. OCR is not implemented: low-text/scanned pages are marked `needs_ocr`. RAG is disabled by default until migrations and service setup are complete. See [RAG setup, code walkthrough and interview notes](docs/rag-implementation-explained.md).
 
 ## Folder structure
 
@@ -31,7 +31,7 @@ ai-documentar/
 │   │   ├── db/               # Base, session factory, future models/
 │   │   ├── schemas/
 │   │   ├── services/         # storage/, ingestion/, retrieval/, llm/
-│   │   └── workers/          # Celery app + future tasks/
+│   │   └── workers/          # Celery app + ingestion tasks/
 │   ├── migrations/versions/ # no fake migrations
 │   ├── tests/
 │   ├── alembic.ini
@@ -90,7 +90,7 @@ python -m pip install -r backend/requirements-dev.txt
 python -m pip check
 ```
 
-With the pip environment activated, run backend commands directly from `backend/`: `uvicorn app.main:app --reload`, `celery -A app.workers.celery_app:celery_app worker --loglevel=INFO`, `alembic upgrade head`, `pytest`, or `ruff check .`. The database, Redis and environment setup described below still applies. You do not need uv to use this pip workflow.
+With the pip environment activated, run backend commands directly from `backend/`: `uvicorn main:app --reload`, `celery -A app.workers.celery_app:celery_app worker --loglevel=INFO`, `alembic upgrade head`, `pytest`, or `ruff check .`. The database, Redis and environment setup described below still applies. You do not need uv to use this pip workflow.
 
 After changing Python dependencies and updating `uv.lock`, regenerate both exports from `backend/`:
 
@@ -136,12 +136,12 @@ Separate terminals:
 
 ```sh
 cd backend
-uv run --locked uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+uv run --locked uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ```sh
 cd backend
-uv run --locked celery -A app.workers.celery_app:celery_app worker --loglevel=INFO --concurrency=2
+uv run --locked celery -A app.workers.celery_app:celery_app worker --loglevel=INFO --concurrency=1
 ```
 
 ## Migration workflow
@@ -179,17 +179,11 @@ POSTGRES_PASSWORD=config-check-only docker compose --env-file deployement/.env.u
 
 The health test checks the liveness response and explicit CORS acceptance/rejection without external services. `/api/v1/health` reports process liveness, not dependency readiness.
 
-## Future implementation workflow
+## Further improvements
 
-1. Define authentication/authorization and actual document/conversation schemas; add reviewed migrations.
-2. Implement storage integration with existing MinIO, authorized uploads and document status.
-3. Integrate Docling/OCR, chunking and embeddings into Celery jobs. No model weights or OCR/model runtimes are installed yet.
-4. Add PostgreSQL/pgvector retrieval, then connect to Mac Ollama using async httpx.
-5. Add POST Fetch streaming, AbortController cancellation, correctly framed SSE, source citations and feedback.
+OCR, table-aware/token-aware chunking, hybrid retrieval, reranking, evaluation datasets, and storage reconciliation remain future work. The baseline RAG backend is implemented; see [its walkthrough](docs/rag-implementation-explained.md) for current guarantees and limits.
 
-TanStack Query will manage persisted documents and conversations. Use Zustand/local state for UI, selections and temporary stream state; do not duplicate permanent server data. See [architecture](docs/architecture.md).
-
-**The production target is not ready for public deployment:** authentication, HTTPS/reverse proxy, secret management, rate limits, monitoring and backups remain pending. An SSH tunnel is the default homelab access method; direct LAN access is optional.
+The production images include authentication, session revocation checks, request/body limits and dependency readiness. Public deployment still needs environment-specific HTTPS, proxy/network controls, backup retention and monitoring. See [operations and the existing-Docker runtime](docs/operations.md).
 
 ## Git push
 
@@ -207,6 +201,12 @@ git push -u origin HEAD
 ```
 
 If no remote is configured, run `git remote add origin YOUR_REPOSITORY_URL` with your actual repository URL first. The scaffold task has not created commits, configured remotes or pushed changes.
+
+## Saved conversations
+
+Chat history now persists through authenticated `/api/v1/conversations` endpoints. The sidebar lists saved conversations, and opening a conversation restores its user and assistant messages. The backend loads context, streams new answers, and records completed, failed, or interrupted generations.
+
+Run `alembic upgrade head` from `backend/` before using this flow. See [the conversation backend guide](docs/conversation-backend-guide.md) for the API contract, implementation files, setup, and tests.
 
 ## Groq and Ollama chat
 
@@ -251,3 +251,9 @@ node --experimental-strip-types --test frontend/tests/chat-stream.test.mjs
 ```
 
 References: [OpenAI Python SDK](https://developers.openai.com/api/reference/python), [Groq OpenAI compatibility](https://console.groq.com/docs/openai).
+
+## Document RAG learning path
+
+The documents frontend supports PDF upload queues, indexing status, PDF previews and library actions. Chat supports document selection and saved citation cards. The backend now implements the baseline RAG flow. Read [the learning guide](docs/rag-learning-guide.md) and [the implementation/interview walkthrough](docs/rag-implementation-explained.md). Worker **and beat scheduler** are required for automatic ingestion; setup commands are in the walkthrough.
+
+Existing Docker PostgreSQL users: follow [operations](docs/operations.md). `compose.runtime.yml` reuses existing infrastructure and does not create another PostgreSQL container.

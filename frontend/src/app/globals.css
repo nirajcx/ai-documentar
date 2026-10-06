@@ -178,3 +178,23 @@
 .dark .markdown-content th {
   background: #221c15;
 }
+
+/* Sleek custom scrollbars */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #d8cdbe;
+  border-radius: 9999px;
+}
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #3e352b;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #96743d;
+}
+

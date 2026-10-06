@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Cookie, Response, status
+from fastapi import APIRouter, Response, status
 
-from app.api.dependencies import SESSION_COOKIE_NAME, CurrentUser
+from app.api.dependencies import SESSION_COOKIE_NAME, CurrentToken, CurrentUser
+from app.core.config import get_settings
 from app.core.security import SESSION_EXPIRE_HOURS
 from app.db.session import DB
 from app.schemas.auth import LoginRequest, LoginResponse, LogoutResponse
@@ -33,7 +34,7 @@ async def login(login_req: LoginRequest, db: DB, response: Response):
         key=SESSION_COOKIE_NAME,
         value=result.session_token,
         httponly=True,
-        secure=False,
+        secure=get_settings().environment == "production",
         samesite="lax",
         max_age=SESSION_EXPIRE_HOURS * 3600,
     )
@@ -46,7 +47,7 @@ async def logout(
     current_user: CurrentUser,
     db: DB,
     response: Response,
-    session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    session_token: CurrentToken,
 ):
     """
     Log out current session and clear session cookie.
@@ -57,7 +58,12 @@ async def logout(
         session_repo = SessionRepository(db)
         await session_repo.revoke_session(session_token)
 
-    response.delete_cookie(key=SESSION_COOKIE_NAME, httponly=True, samesite="lax")
+    response.delete_cookie(
+        key=SESSION_COOKIE_NAME,
+        httponly=True,
+        samesite="lax",
+        secure=get_settings().environment == "production",
+    )
     return LogoutResponse(message="Logged out successfully")
 
 
@@ -71,7 +77,12 @@ async def logout_all(current_user: CurrentUser, db: DB, response: Response):
     session_repo = SessionRepository(db)
     await session_repo.revoke_all_for_user(current_user.id)
 
-    response.delete_cookie(key=SESSION_COOKIE_NAME, httponly=True, samesite="lax")
+    response.delete_cookie(
+        key=SESSION_COOKIE_NAME,
+        httponly=True,
+        samesite="lax",
+        secure=get_settings().environment == "production",
+    )
     return LogoutResponse(message="Logged out from all devices successfully")
 
 

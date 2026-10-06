@@ -13,6 +13,14 @@ x-api-environment: &api-environment
   S3_REGION: ${S3_REGION:-us-east-1}
   OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://192.168.1.4:11434}
 
+  RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+  RAG_ENABLED: ${RAG_ENABLED:-false}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-qwen3-embedding:0.6b}
+  EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1024}
+  EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-8}
+  RAG_MAX_DISTANCE: ${RAG_MAX_DISTANCE:-0.65}
+  DOCUMENT_MAX_COUNT: ${DOCUMENT_MAX_COUNT:-100}
+  DOCUMENT_QUOTA_BYTES: ${DOCUMENT_QUOTA_BYTES:-524288000}
   CHAT_PROVIDER: ${CHAT_PROVIDER:-groq}
   GROQ_API_KEY: ${GROQ_API_KEY:-}
   GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
@@ -70,6 +78,36 @@ services:
       - ../backend/app:/app/app
       - ../backend/migrations:/app/migrations
       - ../backend/main.py:/app/main.py
+
+  scheduler:
+    build:
+      context: ../backend
+      target: development
+    environment: *api-environment
+    command: ["celery", "-A", "app.workers.celery_app:celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../backend/app:/app/app
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ../backend
+      target: development
+    environment: *api-environment
+    command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=1"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../backend/app:/app/app
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
 
   postgres:
     image: pgvector/pgvector:0.8.7-pg17-bookworm

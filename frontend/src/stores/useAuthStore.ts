@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import { api } from "@/lib/api";
 import { UserProfile } from "@/lib/types";
 import { notify } from "@/stores/useToastStore";
+import { useConversationStore } from "@/stores/useConversationStore";
 
 interface AuthState {
   user: UserProfile | null;
@@ -59,6 +60,7 @@ export const useAuthStore = create<AuthState>()(
         } catch {
           // Ignore server errors during cleanup
         } finally {
+          useConversationStore.getState().reset();
           set({ user: null, authError: null });
           notify("You're signed out.", "success");
         }

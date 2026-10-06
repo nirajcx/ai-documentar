@@ -1,8 +1,11 @@
+import type { Citation } from "./types";
+
 /** Consume complete SSE frames; a network read is not necessarily a whole event. */
 export async function readChatStream(
   body: ReadableStream<Uint8Array>,
   onChunk: (token: string) => void,
   onDone: () => void,
+  onCitations?: (citations: Citation[]) => void,
 ): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -21,8 +24,9 @@ export async function readChatStream(
           .map((line) => line.slice(5).replace(/^ /, ""))
           .join("\n");
         if (!payload) continue;
-        const event = JSON.parse(payload) as { content?: string; done?: boolean; error?: string };
+        const event = JSON.parse(payload) as { content?: string; done?: boolean; error?: string; citations?: Citation[] };
         if (event.error) throw new Error(event.error);
+        if (Array.isArray(event.citations)) onCitations?.(event.citations);
         if (event.content) onChunk(event.content);
         if (event.done) {
           onDone();

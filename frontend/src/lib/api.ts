@@ -1,5 +1,5 @@
 import { readChatStream } from "./chat-stream";
-import { ChatModelsResponse, ChatProvider, ChatMessage, ChatResponse, LoginResponse, LogoutResponse, UserProfile } from "./types";
+import type { KnowledgeDocument, Citation, RagOptions, Conversation, ConversationDetail, ChatModelsResponse, ChatProvider, ChatMessage, ChatResponse, LoginResponse, LogoutResponse, UserProfile } from "./types";
 
 export type HealthResponse = { status: "ok" };
 
@@ -123,6 +123,88 @@ export const api = {
     if (!res.body) throw new Error("No response stream body available.");
 
     await readChatStream(res.body, onChunk, onDone);
+  },
+
+  async listConversations(signal?: AbortSignal): Promise<Conversation[]> {
+    const res = await fetch(`${apiBaseUrl()}/conversations`, {
+      credentials: "include", cache: "no-store", signal,
+    });
+    if (!res.ok) throw await responseError(res, "Could not load conversations.");
+    return res.json();
+  },
+
+  async createConversation(title: string, signal?: AbortSignal): Promise<Conversation> {
+    const res = await fetch(`${apiBaseUrl()}/conversations`, {
+      method: "POST", credentials: "include", signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    if (!res.ok) throw await responseError(res, "Could not create conversation.");
+    return res.json();
+  },
+
+  async getConversation(id: string, signal?: AbortSignal): Promise<ConversationDetail> {
+    const res = await fetch(`${apiBaseUrl()}/conversations/${encodeURIComponent(id)}`, {
+      credentials: "include", cache: "no-store", signal,
+    });
+    if (!res.ok) throw await responseError(res, "Could not load conversation.");
+    return res.json();
+  },
+
+  async streamConversation(
+    id: string,
+    data: { message: string; request_id: string; model: string; provider: ChatProvider; rag?: RagOptions },
+    onChunk: (token: string) => void,
+    signal?: AbortSignal,
+    onCitations?: (citations: Citation[]) => void,
+  ): Promise<void> {
+    const res = await fetch(`${apiBaseUrl()}/conversations/${encodeURIComponent(id)}/messages/stream`, {
+      method: "POST", credentials: "include", signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw await responseError(res, "Could not send message.");
+    if (!res.body) throw new Error("No response stream body available.");
+    await readChatStream(res.body, onChunk, () => undefined, onCitations);
+  },
+
+  async listDocuments(signal?: AbortSignal): Promise<KnowledgeDocument[]> {
+    const res = await fetch(`${apiBaseUrl()}/documents`, { credentials: "include", cache: "no-store", signal });
+    if (!res.ok) throw await responseError(res, "Document library is unavailable.");
+    return res.json();
+  },
+
+  async documentCapabilities(signal?: AbortSignal): Promise<{ chat_ready: boolean }> {
+    const res = await fetch(`${apiBaseUrl()}/documents/capabilities`, { credentials: "include", cache: "no-store", signal });
+    if (!res.ok) throw await responseError(res, "Document search is unavailable.");
+    return res.json();
+  },
+
+  async uploadDocument(file: File, signal?: AbortSignal): Promise<KnowledgeDocument> {
+    const body = new FormData();
+    body.append("file", file);
+    const res = await fetch(`${apiBaseUrl()}/documents`, { method: "POST", credentials: "include", body, signal });
+    if (!res.ok) throw await responseError(res, `Could not upload ${file.name}.`);
+    return res.json();
+  },
+
+  async retryDocument(id: string, signal?: AbortSignal): Promise<KnowledgeDocument> {
+    const res = await fetch(`${apiBaseUrl()}/documents/${encodeURIComponent(id)}/retry`, { method: "POST", credentials: "include", signal });
+    if (!res.ok) throw await responseError(res, "Could not retry indexing.");
+    return res.json();
+  },
+
+  async deleteDocument(id: string, signal?: AbortSignal): Promise<void> {
+    const res = await fetch(`${apiBaseUrl()}/documents/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include", signal });
+    if (!res.ok) throw await responseError(res, "Could not delete document.");
+  },
+
+  async documentFile(id: string, signal?: AbortSignal): Promise<Blob> {
+    const res = await fetch(`${apiBaseUrl()}/documents/${encodeURIComponent(id)}/file`, { credentials: "include", signal });
+    if (!res.ok) throw await responseError(res, "Could not open PDF.");
+    const blob = await res.blob();
+    if (!blob.type.toLowerCase().startsWith("application/pdf")) throw new Error("The server did not return a PDF.");
+    return blob;
   },
 
   async getHealth(signal?: AbortSignal): Promise<HealthResponse> {

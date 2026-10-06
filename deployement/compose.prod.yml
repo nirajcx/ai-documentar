@@ -13,6 +13,14 @@ x-api-environment: &api-environment
   S3_REGION: ${S3_REGION:-us-east-1}
   OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
 
+  RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+  RAG_ENABLED: ${RAG_ENABLED:-false}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-qwen3-embedding:0.6b}
+  EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1024}
+  EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-8}
+  RAG_MAX_DISTANCE: ${RAG_MAX_DISTANCE:-0.65}
+  DOCUMENT_MAX_COUNT: ${DOCUMENT_MAX_COUNT:-100}
+  DOCUMENT_QUOTA_BYTES: ${DOCUMENT_QUOTA_BYTES:-524288000}
   CHAT_PROVIDER: ${CHAT_PROVIDER:-groq}
   GROQ_API_KEY: ${GROQ_API_KEY:-}
   GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
@@ -73,7 +81,7 @@ services:
     environment: *api-environment
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=2", "--hostname=worker@%h"]
+    command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=1", "--hostname=worker@%h"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,6 +93,19 @@ services:
       timeout: 10s
       start_period: 20s
       retries: 3
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: ../backend
+      target: production
+    environment: *api-environment
+    command: ["celery", "-A", "app.workers.celery_app:celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
   postgres:

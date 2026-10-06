@@ -28,6 +28,15 @@ class Settings(BaseSettings):
     groq_reasoning_effort: Literal["low", "medium", "high"] = "low"
     groq_max_completion_tokens: int = Field(default=2048, ge=1, le=65536)
     ollama_chat_model: str = "llama3.1:8b"
+    rate_limit_enabled: bool = False
+    request_max_bytes: int = Field(default=26 * 1024 * 1024, ge=1024)
+    rag_enabled: bool = False
+    embedding_model: str = "qwen3-embedding:0.6b"
+    embedding_dimensions: int = Field(default=1024, ge=1024, le=1024)
+    embedding_batch_size: int = Field(default=8, ge=1, le=32)
+    rag_max_distance: float = Field(default=0.65, ge=0, le=2)
+    document_max_count: int = Field(default=100, ge=1)
+    document_quota_bytes: int = Field(default=500 * 1024 * 1024, ge=1)
     ollama_base_url: str = "http://localhost:11434"
 
 
