@@ -37,3 +37,6 @@ model-weights/
 *.onnx
 
 !.env.*.example
+
+# Local interview preparation materials
+interview/
