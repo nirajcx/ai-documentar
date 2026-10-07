@@ -15,6 +15,28 @@ SEARCH_URL = "https://api.tavily.com/search"
 MAX_RESPONSE_BYTES = 1_000_000
 WEB_NOT_FOUND = "I couldn't find enough evidence in the selected sources."
 
+WEB_SEARCH_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "web_search",
+        "description": (
+            "Search the live web for up-to-date facts, current events, recent documentation, or specific information. "
+            "Call this when the user's question requires fresh, real-time, or external web information. "
+            "Provide a focused, targeted search query."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Specific, focused search query (1-400 characters).",
+                }
+            },
+            "required": ["query"],
+        },
+    },
+}
+
 
 def public_source_url(value: object) -> str | None:
     """Allow public HTTP(S) links only. We never fetch these URLs server-side."""

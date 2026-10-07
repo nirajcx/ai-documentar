@@ -25,13 +25,20 @@ class OllamaService:
             data = res.json()
             return data.get("models", [])
 
-    async def chat(self, messages: List[Dict[str, str]], model: str = "llama3.1:8b") -> Dict[str, Any]:
+    async def chat(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "llama3.1:8b",
+        tools: List[Dict[str, Any]] | None = None,
+    ) -> Dict[str, Any]:
         """Send chat messages and return the response."""
-        payload = {
+        payload: Dict[str, Any] = {
             "model": model,
             "messages": messages,
             "stream": False,
         }
+        if tools:
+            payload["tools"] = tools
         async with httpx.AsyncClient(timeout=60.0) as client:
             res = await client.post(f"{self.base_url}/api/chat", json=payload)
             res.raise_for_status()

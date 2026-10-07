@@ -36,17 +36,44 @@ class GroqService:
             options["extra_body"] = {"include_reasoning": False}
         return options
 
-    async def chat(self, messages: list[dict[str, str]], model: str) -> dict:
+    async def chat(
+        self,
+        messages: list[dict[str, str]],
+        model: str,
+        tools: list[dict] | None = None,
+    ) -> dict:
         async with self._client() as client:
+            extra = {}
+            if tools:
+                extra["tools"] = tools
+                extra["tool_choice"] = "auto"
             result = await client.chat.completions.create(
                 model=model,
                 messages=cast(list[ChatCompletionMessageParam], messages),
                 **self._options(model),
+                **extra,
             )
-            if not result.choices or result.choices[0].finish_reason != "stop":
+            if not result.choices or result.choices[0].finish_reason not in {"stop", "tool_calls"}:
                 raise GroqGenerationError("Groq did not finish the answer. Try a shorter question.")
+            choice = result.choices[0]
+            tool_calls_data = None
+            if choice.message.tool_calls:
+                tool_calls_data = [
+                    {
+                        "id": tc.id,
+                        "type": tc.type,
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in choice.message.tool_calls
+                ]
             return {
-                "message": {"content": result.choices[0].message.content or ""},
+                "message": {
+                    "content": choice.message.content or "",
+                    "tool_calls": tool_calls_data,
+                },
                 "model": result.model,
                 "done": True,
             }

@@ -291,3 +291,136 @@ def test_web_off_does_not_search(monkeypatch):
         assert "General answer" in "".join(frames)
 
     asyncio.run(run())
+
+
+def test_agentic_web_search_invokes_tool_and_grounds_answer(monkeypatch):
+    searched_queries = []
+    saved_answers = []
+
+    async def mocked_search(self, query, start_label=1):
+        searched_queries.append(query)
+        return {
+            "S1": {
+                "kind": "web",
+                "label": "S1",
+                "title": "Space News",
+                "url": "https://example.com/space",
+                "excerpt": "Mission Artemis II scheduled for launch.",
+                "retrieved_at": datetime.now(UTC).isoformat(),
+            }
+        }
+
+    monkeypatch.setattr(WebSearchService, "search", mocked_search)
+
+    class AgentLLM:
+        async def chat(self, messages, model, tools=None):
+            # Model decides to call web_search with its own formulated query!
+            assert tools is not None
+            return {
+                "message": {
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_123",
+                            "type": "function",
+                            "function": {
+                                "name": "web_search",
+                                "arguments": json.dumps({"query": "Artemis II launch date"}),
+                            },
+                        }
+                    ],
+                },
+                "done": True,
+            }
+
+        async def stream_chat(self, messages, model):
+            assert "Artemis II" in messages[1]["content"]
+            yield 'data: {"content": "Launch is scheduled [S1]."}\n\n'
+            yield 'data: {"done": true}\n\n'
+
+    async def run():
+        service = ConversationService(None)
+
+        async def finish(turn, content, status):
+            saved_answers.append((content, status, turn.citations))
+
+        service.finish = finish
+        turn = PreparedTurn(
+            uuid4(),
+            uuid4(),
+            uuid4(),
+            [{"role": "user", "content": "When is Artemis II flying?"}],
+            "model",
+            sources={},
+            web_search_agent=True,
+            evidence_question="When is Artemis II flying?",
+            not_found=WEB_NOT_FOUND,
+        )
+
+        frames = [
+            json.loads(frame.removeprefix("data: "))
+            async for frame in service.stream(turn, AgentLLM(), stream_error)
+        ]
+
+        # Verify LLM's own formulated query was executed
+        assert searched_queries == ["Artemis II launch date"]
+        assert saved_answers[-1][1] == "complete"
+        assert saved_answers[-1][0] == "Launch is scheduled [S1]."
+        assert saved_answers[-1][2][0]["url"] == "https://example.com/space"
+        assert frames[-1] == {"done": True}
+
+    asyncio.run(run())
+
+
+def test_agentic_web_search_skips_search_when_not_needed(monkeypatch):
+    async def bad(*args, **kwargs):
+        pytest.fail("Search should not be called if LLM decides it is not needed")
+
+    monkeypatch.setattr(WebSearchService, "search", bad)
+
+    saved_answers = []
+
+    class AgentLLM:
+        async def chat(self, messages, model, tools=None):
+            # Model decides NO search is needed (e.g. greeting)
+            return {
+                "message": {
+                    "content": "Hello! How can I help you today?",
+                    "tool_calls": None,
+                },
+                "done": True,
+            }
+
+        async def stream_chat(self, messages, model):
+            pytest.fail("stream_chat should not be called for direct direct completion")
+
+    async def run():
+        service = ConversationService(None)
+
+        async def finish(turn, content, status):
+            saved_answers.append((content, status, turn.citations))
+
+        service.finish = finish
+        turn = PreparedTurn(
+            uuid4(),
+            uuid4(),
+            uuid4(),
+            [{"role": "user", "content": "Hello"}],
+            "model",
+            sources={},
+            web_search_agent=True,
+            evidence_question="Hello",
+            not_found=WEB_NOT_FOUND,
+        )
+
+        frames = [
+            json.loads(frame.removeprefix("data: "))
+            async for frame in service.stream(turn, AgentLLM(), stream_error)
+        ]
+
+        assert saved_answers[-1][0] == "Hello! How can I help you today?"
+        assert saved_answers[-1][1] == "complete"
+        assert frames[0]["content"] == "Hello! How can I help you today?"
+        assert frames[-1] == {"done": True}
+
+    asyncio.run(run())

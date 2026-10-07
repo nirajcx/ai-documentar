@@ -22,6 +22,7 @@ from app.services.retrieval.rag_service import (
 )
 from app.services.retrieval.web_search_service import (
     WEB_NOT_FOUND,
+    WEB_SEARCH_TOOL,
     WebSearchService,
     web_evidence_messages,
 )
@@ -40,6 +41,7 @@ class PreparedTurn:
     sources: dict | None = None
     citations: list[dict] = field(default_factory=list)
     web_query: str | None = None
+    web_search_agent: bool = False
     evidence_question: str = ""
     not_found: str = NOT_FOUND
 
@@ -98,9 +100,13 @@ class ConversationService:
                 messages = messages[2:]
             messages.append({"role": "user", "content": request.message})
             web_query = None
+            web_search_agent = False
             if request.web_search and request.web_search.enabled:
                 WebSearchService().ensure_configured()
-                web_query = request.web_search.query or request.message.strip()
+                if request.web_search.query:
+                    web_query = request.web_search.query
+                else:
+                    web_search_agent = True
             sources = None
             if request.rag and request.rag.enabled:
                 messages, sources = await prepare_evidence(
@@ -109,16 +115,18 @@ class ConversationService:
             assistant = await repo.begin_turn(
                 user_id, chat_id, request.request_id, request.message, provider, model
             )
+            has_web = bool(web_query or web_search_agent)
             return PreparedTurn(
                 user_id,
                 chat_id,
                 assistant.id,
                 messages,
                 model,
-                sources if sources is not None else ({} if web_query else None),
+                sources if sources is not None else ({} if has_web else None),
                 web_query=web_query,
+                web_search_agent=web_search_agent,
                 evidence_question=request.message,
-                not_found=WEB_NOT_FOUND if web_query else NOT_FOUND,
+                not_found=WEB_NOT_FOUND if has_web else NOT_FOUND,
             )
 
     async def finish(self, turn: PreparedTurn, content: str, status: str) -> None:
@@ -137,12 +145,74 @@ class ConversationService:
         try:
             with anyio.fail_after(GENERATION_TIMEOUT_SECONDS):
                 # prepare() committed the turn and released its DB session first.
-                # One search per accepted turn, never PDF text or prior chat history.
-                if turn.web_query:
+                if turn.web_search_agent and hasattr(llm, "chat"):
+                    agent_messages = [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a helpful assistant with access to a live web search tool. "
+                                "If the user asks about current events, real-time facts, recent information, "
+                                "or questions requiring external verification, use the web_search tool with a concise, targeted search query. "
+                                "If the user's request does not require external or recent facts, answer directly without searching."
+                            ),
+                        },
+                        *turn.messages,
+                    ]
+                    agent_res = await llm.chat(
+                        messages=agent_messages,
+                        model=turn.model,
+                        tools=[WEB_SEARCH_TOOL],
+                    )
+                    tool_calls = agent_res.get("message", {}).get("tool_calls") or []
+                    search_call = next(
+                        (
+                            tc
+                            for tc in tool_calls
+                            if tc.get("function", {}).get("name") == "web_search"
+                        ),
+                        None,
+                    )
+                    if search_call:
+                        raw_args = search_call.get("function", {}).get("arguments", {})
+                        if isinstance(raw_args, str):
+                            try:
+                                args = json.loads(raw_args)
+                            except Exception:
+                                args = {}
+                        elif isinstance(raw_args, dict):
+                            args = raw_args
+                        else:
+                            args = {}
+                        query = str(args.get("query", "")).strip()[:400]
+                        if not query:
+                            query = turn.evidence_question.strip()[:400]
+                        sources = dict(turn.sources or {})
+                        sources.update(
+                            await WebSearchService().search(
+                                query,
+                                start_label=len(sources) + 1,
+                            )
+                        )
+                        turn.sources = sources
+                        turn.messages = web_evidence_messages(turn.evidence_question, sources)
+                    else:
+                        direct_content = agent_res.get("message", {}).get("content", "")
+                        if direct_content:
+                            turn.sources = None
+                            yield f"data: {json.dumps({'content': direct_content})}\n\n"
+                            with anyio.CancelScope(shield=True):
+                                await self.finish(turn, direct_content, "complete")
+                                saved = True
+                            yield 'data: {"done": true}\n\n'
+                            return
+                        else:
+                            turn.sources = None
+                elif turn.web_query or (turn.web_search_agent and not hasattr(llm, "chat")):
+                    query_to_search = turn.web_query or turn.evidence_question.strip()[:400]
                     sources = dict(turn.sources or {})
                     sources.update(
                         await WebSearchService().search(
-                            turn.web_query,
+                            query_to_search,
                             start_label=len(sources) + 1,
                         )
                     )
