@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { api } from "@/lib/api";
-import type { RagOptions, ChatProvider, Conversation, SavedChatMessage } from "@/lib/types";
+import type { RagOptions, WebSearchOptions, ChatProvider, Conversation, SavedChatMessage } from "@/lib/types";
 
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : "Request failed.";
@@ -32,7 +32,7 @@ interface ConversationState {
   refreshList: () => Promise<void>;
   openConversation: (id: string) => Promise<void>;
   newConversation: () => void;
-  send: (message: string, provider: ChatProvider, model: string, rag?: RagOptions) => Promise<boolean>;
+  send: (message: string, provider: ChatProvider, model: string, rag?: RagOptions, webSearch?: WebSearchOptions) => Promise<boolean>;
   stop: () => void;
   reset: () => void;
   initialize: () => void;
@@ -137,7 +137,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     rememberConversation(null);
   },
 
-  send: async (message: string, provider: ChatProvider, model: string, rag?: RagOptions): Promise<boolean> => {
+  send: async (message: string, provider: ChatProvider, model: string, rag?: RagOptions, webSearch?: WebSearchOptions): Promise<boolean> => {
     const state = get();
     if (
       locked ||
@@ -202,7 +202,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
       await api.streamConversation(
         id,
-        { message, request_id: requestId, provider, model, ...(rag?.enabled ? { rag } : {}) },
+        { message, request_id: requestId, provider, model, ...(rag?.enabled ? { rag } : {}), ...(webSearch?.enabled ? { web_search: webSearch } : {}) },
         (token) => {
           if (!abort.signal.aborted) {
             set((s) => ({

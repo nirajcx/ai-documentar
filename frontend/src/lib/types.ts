@@ -71,7 +71,8 @@ export interface KnowledgeDocument {
   error: string | null;
   created_at: string;
 }
-export interface Citation {
+export interface DocumentCitation {
+  kind?: "document";
   label: string;
   document_id: string;
   chunk_id: string;
@@ -83,4 +84,18 @@ export interface Citation {
 export interface RagOptions {
   enabled: boolean;
   document_ids: string[];
+}
+
+export interface WebCitation {
+  kind: "web";
+  label: string;
+  title: string;
+  url: string;
+  excerpt: string;
+  retrieved_at: string;
+}
+export type Citation = DocumentCitation | WebCitation;
+export interface WebSearchOptions {
+  enabled: boolean;
+  query?: string;
 }

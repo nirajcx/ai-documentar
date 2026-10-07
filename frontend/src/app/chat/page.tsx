@@ -21,8 +21,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { api } from "@/lib/api";
 import { RagControls } from "@/components/documents/RagControls";
+import { WebSearchControls } from "@/components/documents/WebSearchControls";
 import { CitationList } from "@/components/documents/CitationList";
-import { ChatProvider, RagOptions } from "@/lib/types";
+import { ChatProvider, RagOptions, WebSearchOptions } from "@/lib/types";
 import { useConversations } from "@/hooks/useConversations";
 import { useAuthStore } from "@/stores/useAuthStore";
 
@@ -35,6 +36,8 @@ function ChatWorkspace() {
   const chat = useConversations();
   const { messages, busy, streaming } = chat;
   const [input, setInput] = useState("");
+  const [webSearch, setWebSearch] = useState<WebSearchOptions>({ enabled: false });
+  const webQueryTooLong = webSearch.enabled && (webSearch.query?.trim() || input.trim()).length > 400;
   const [rag, setRag] = useState<RagOptions>({ enabled: false, document_ids: [] });
 
   const [models, setModels] = useState<{ name: string }[]>([]);
@@ -82,10 +85,10 @@ function ChatWorkspace() {
 
   async function handleSend(e?: React.FormEvent) {
     e?.preventDefault();
-    if (!input.trim() || busy || !providerReady || !chat.historyReady || (rag.enabled && !rag.document_ids.length)) return;
+    if (webQueryTooLong || !input.trim() || busy || !providerReady || !chat.historyReady || (rag.enabled && !rag.document_ids.length)) return;
     const text = input.trim();
     setInput("");
-    const submitted = await chat.send(text, provider, selectedModel, rag);
+    const submitted = await chat.send(text, provider, selectedModel, rag, webSearch);
     if (!submitted) setInput(text);
   }
 
@@ -146,7 +149,7 @@ function ChatWorkspace() {
               </div>
             </div>
             <p className="text-xs text-[#827566] dark:text-[#a89b8c] mt-0.5">
-              Live token streaming · {provider === "ollama" ? "Local Ollama" : "Groq cloud"}
+              {rag.enabled || webSearch.enabled ? "Source-checked answers" : "Live token streaming"} · {provider === "ollama" ? "Local Ollama" : "Groq cloud"}
             </p>
           </div>
 
@@ -187,6 +190,8 @@ function ChatWorkspace() {
         {messages.some(message => message.status === "streaming") && !busy && <p role="status" className="py-2 text-sm">An answer is still being saved or generated. Reload to check its status.</p>}
 
         <RagControls value={rag} onChange={setRag} disabled={busy} />
+        <WebSearchControls value={webSearch} onChange={setWebSearch} disabled={busy} />
+        {webQueryTooLong && <p role="alert" className="text-xs text-red-600 mb-2">Enter a shorter web search query (up to 400 characters) above.</p>}
 
         {/* Message Thread */}
         <div className="flex-1 overflow-y-auto py-6 space-y-6 pr-2">
@@ -326,7 +331,7 @@ function ChatWorkspace() {
               ) : (
                 <Button
                   type="submit"
-                  disabled={!input.trim() || busy || !providerReady || !chat.historyReady || (rag.enabled && !rag.document_ids.length) || messages.some(message => message.status === "streaming")}
+                  disabled={webQueryTooLong || !input.trim() || busy || !providerReady || !chat.historyReady || (rag.enabled && !rag.document_ids.length) || messages.some(message => message.status === "streaming")}
                   className="bg-[#96743d] hover:bg-[#83632f] disabled:opacity-40 text-white gap-1.5 px-4 h-8 text-xs rounded-lg cursor-pointer shadow-xs"
                 >
                   <span>Send</span>

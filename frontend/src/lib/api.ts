@@ -1,5 +1,5 @@
 import { readChatStream } from "./chat-stream";
-import type { KnowledgeDocument, Citation, RagOptions, Conversation, ConversationDetail, ChatModelsResponse, ChatProvider, ChatMessage, ChatResponse, LoginResponse, LogoutResponse, UserProfile } from "./types";
+import type { KnowledgeDocument, Citation, RagOptions, WebSearchOptions, Conversation, ConversationDetail, ChatModelsResponse, ChatProvider, ChatMessage, ChatResponse, LoginResponse, LogoutResponse, UserProfile } from "./types";
 
 export type HealthResponse = { status: "ok" };
 
@@ -153,7 +153,7 @@ export const api = {
 
   async streamConversation(
     id: string,
-    data: { message: string; request_id: string; model: string; provider: ChatProvider; rag?: RagOptions },
+    data: { message: string; request_id: string; model: string; provider: ChatProvider; rag?: RagOptions; web_search?: WebSearchOptions },
     onChunk: (token: string) => void,
     signal?: AbortSignal,
     onCitations?: (citations: Citation[]) => void,
@@ -166,6 +166,14 @@ export const api = {
     if (!res.ok) throw await responseError(res, "Could not send message.");
     if (!res.body) throw new Error("No response stream body available.");
     await readChatStream(res.body, onChunk, () => undefined, onCitations);
+  },
+
+  async conversationCapabilities(signal?: AbortSignal): Promise<{ web_search_ready: boolean; web_search_provider: string }> {
+    const res = await fetch(`${apiBaseUrl()}/conversations/capabilities`, {
+      credentials: "include", cache: "no-store", signal,
+    });
+    if (!res.ok) throw await responseError(res, "Could not check web search availability.");
+    return res.json();
   },
 
   async listDocuments(signal?: AbortSignal): Promise<KnowledgeDocument[]> {

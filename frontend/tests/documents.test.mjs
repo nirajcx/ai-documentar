@@ -87,3 +87,42 @@ test("citations alone do not count as successful answer completion", async () =>
   await assert.rejects(readChatStream(body, () => undefined, () => events.push("done"), () => events.push("citations")), /Invalid citations/);
   assert.deepEqual(events, ["citations"]);
 });
+
+test("web capabilities are authenticated and never require a browser API key", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    assert.ok(url.endsWith("/conversations/capabilities"));
+    assert.equal(options.credentials, "include");
+    assert.equal(options.cache, "no-store");
+    return Response.json({ web_search_ready: true, web_search_provider: "tavily" });
+  };
+  try { assert.equal((await api.conversationCapabilities()).web_search_ready, true); }
+  finally { globalThis.fetch = original; }
+});
+
+test("web plus PDF request carries options and mixed citations survive stream and history", async () => {
+  const original = globalThis.fetch;
+  const citations = [
+    { label: "S1", document_id: "doc-1", chunk_id: "chunk-1", filename: "notes.pdf", page_start: 1, page_end: 1, excerpt: "Private passage" },
+    { kind: "web", label: "S2", title: "Official site", url: "https://example.com", excerpt: "Public passage", retrieved_at: "2026-10-07T00:00:00Z" },
+  ];
+  globalThis.fetch = async (url, options) => {
+    if (options.method === "POST") {
+      const data = JSON.parse(options.body);
+      assert.deepEqual(data.web_search, { enabled: true, query: "public question" });
+      assert.deepEqual(data.rag, { enabled: true, document_ids: ["doc-1"] });
+      assert.equal(options.credentials, "include");
+      return new Response(`data: {"content":"Answer [S1] [S2]"}\n\ndata: ${JSON.stringify({ citations })}\n\ndata: {"done":true}\n\n`);
+    }
+    return Response.json({ id: "chat-1", messages: [{ content: "Answer [S1] [S2]", citations }] });
+  };
+  try {
+    let received;
+    await api.streamConversation("chat-1", {
+      message: "compare", request_id: "r1", provider: "groq", model: "test",
+      rag: { enabled: true, document_ids: ["doc-1"] }, web_search: { enabled: true, query: "public question" },
+    }, () => undefined, undefined, values => { received = values; });
+    assert.deepEqual(received, citations);
+    assert.deepEqual((await api.getConversation("chat-1")).messages[0].citations, citations);
+  } finally { globalThis.fetch = original; }
+});

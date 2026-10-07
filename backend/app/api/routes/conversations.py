@@ -29,12 +29,25 @@ Service = Annotated[ConversationService, Depends(get_conversation_service)]
 
 
 def stream_error(exc: Exception) -> tuple[int, str]:
+    if isinstance(exc, HTTPException):
+        return exc.status_code, exc.detail
     if isinstance(exc, CitationValidationError):
         return 502, "The answer failed source validation. Please try again."
     if isinstance(exc, TimeoutError):
         return 504, "Generation timed out. Try a shorter question."
     error = provider_error(exc)
     return error.status_code, error.detail
+
+
+@router.get("/capabilities")
+async def conversation_capabilities():
+    settings = get_settings()
+    return {
+        "web_search_ready": bool(
+            settings.web_search_enabled and settings.tavily_api_key.get_secret_value().strip()
+        ),
+        "web_search_provider": "tavily",
+    }
 
 
 @router.get("", response_model=list[ConversationOut])

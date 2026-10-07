@@ -32,7 +32,9 @@ def setup(monkeypatch):
     schema = "test_conversations_" + uuid4().hex
     admin = create_async_engine(URL, poolclass=NullPool)
     engine = create_async_engine(
-        URL, poolclass=NullPool, connect_args={"server_settings": {"search_path": schema + ",public"}}
+        URL,
+        poolclass=NullPool,
+        connect_args={"server_settings": {"search_path": schema + ",public"}},
     )
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     user_id, other_id = uuid4(), uuid4()
@@ -272,3 +274,57 @@ def test_concurrent_turns_and_expired_recovery(setup):
         await setup.service.finish(turn, "Recovered", "complete")
 
     asyncio.run(run())
+
+
+def test_web_search_persists_history_and_duplicate_never_searches_again(setup, monkeypatch):
+    from app.services.retrieval.web_search_service import WebSearchService
+
+    calls = []
+
+    def configured(self):
+        pass
+
+    async def search(self, query, start_label=1):
+        calls.append(query)
+        # Real sessions have already been released before the external search.
+        return {
+            "S1": {
+                "kind": "web",
+                "label": "S1",
+                "title": "Public source",
+                "url": "https://example.com",
+                "excerpt": "Public fact",
+                "retrieved_at": "2026-10-07T00:00:00Z",
+            }
+        }
+
+    class GroundedLLM:
+        async def stream_chat(self, messages, model):
+            assert "Public fact" in messages[1]["content"]
+            yield 'data: {"content":"Public fact [S1]"}\n\n'
+            yield 'data: {"done":true}\n\n'
+
+    monkeypatch.setattr(WebSearchService, "ensure_configured", configured)
+    monkeypatch.setattr(WebSearchService, "search", search)
+    monkeypatch.setattr(conversations, "get_chat_service", lambda provider: (GroundedLLM(), "test"))
+    cid = create(setup)
+    body = {
+        "message": "My question",
+        "request_id": str(uuid4()),
+        "web_search": {"enabled": True, "query": "public query"},
+    }
+    response = request(setup, "POST", f"/{cid}/messages/stream", body)
+    assert response.status_code == 200 and '"done"' in response.text
+    detail = request(setup, "GET", f"/{cid}").json()
+    source = detail["messages"][-1]["citations"][0]
+    assert source["kind"] == "web" and source["url"] == "https://example.com"
+    assert detail["messages"][-1]["status"] == "complete"
+    assert request(setup, "POST", f"/{cid}/messages/stream", body).status_code == 409
+    setup.app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=setup.other)
+    assert (
+        request(
+            setup, "POST", f"/{cid}/messages/stream", {**body, "request_id": str(uuid4())}
+        ).status_code
+        == 404
+    )
+    assert calls == ["public query"]

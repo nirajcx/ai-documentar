@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     ollama_chat_model: str = "llama3.1:8b"
     rate_limit_enabled: bool = False
     request_max_bytes: int = Field(default=26 * 1024 * 1024, ge=1024)
+    web_search_enabled: bool = False
+    tavily_api_key: SecretStr = SecretStr("")
+    web_search_max_results: int = Field(default=5, ge=1, le=8)
+    web_search_timeout_seconds: float = Field(default=15, ge=1, le=30)
     rag_enabled: bool = False
     embedding_model: str = "qwen3-embedding:0.6b"
     embedding_dimensions: int = Field(default=1024, ge=1024, le=1024)

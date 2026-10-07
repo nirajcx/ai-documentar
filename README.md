@@ -257,3 +257,9 @@ References: [OpenAI Python SDK](https://developers.openai.com/api/reference/pyth
 The documents frontend supports PDF upload queues, indexing status, PDF previews and library actions. Chat supports document selection and saved citation cards. The backend now implements the baseline RAG flow. Read [the learning guide](docs/rag-learning-guide.md) and [the implementation/interview walkthrough](docs/rag-implementation-explained.md). Worker **and beat scheduler** are required for automatic ingestion; setup commands are in the walkthrough.
 
 Existing Docker PostgreSQL users: follow [operations](docs/operations.md). `compose.runtime.yml` reuses existing infrastructure and does not create another PostgreSQL container.
+
+## Optional web search and website citations
+
+Chat supports **Search the web** with Tavily, either alone or alongside selected PDFs. Answers show website titles, source URLs and excerpts in **Sources**, and citations persist in conversation history. The search key stays on the backend; Groq/Ollama still handles answer generation.
+
+Sign up at [Tavily](https://app.tavily.com/), add `WEB_SEARCH_ENABLED=true` and `TAVILY_API_KEY` to the environment used by the backend, and restart/rebuild the API and frontend. See the [complete setup, runtime commands, data flow and troubleshooting guide](docs/web-search-setup.md).

@@ -26,12 +26,12 @@ def normalize_citation_labels(answer: str) -> str:
     return re.sub(r"【(S\d+)】|［(S\d+)］", lambda m: f"[{m[1] or m[2]}]", answer)
 
 
-def resolve_citations(answer, sources, *, strict=True):
+def resolve_citations(answer, sources, *, strict=True, not_found=NOT_FOUND):
     answer = normalize_citation_labels(answer)
     labels = list(dict.fromkeys(re.findall(r"\[(S\d+)\]", answer)))
     if strict and any(label not in sources for label in labels):
         raise CitationValidationError("Answer contains unknown source labels.")
-    if strict and not labels and answer.strip() != NOT_FOUND:
+    if strict and not labels and answer.strip() != not_found:
         raise CitationValidationError("Document answer is missing citations.")
     return [sources[label] for label in labels if label in sources]
 

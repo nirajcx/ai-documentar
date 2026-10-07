@@ -20,6 +20,11 @@ from app.services.retrieval.rag_service import (
     prepare_evidence,
     resolve_citations,
 )
+from app.services.retrieval.web_search_service import (
+    WEB_NOT_FOUND,
+    WebSearchService,
+    web_evidence_messages,
+)
 
 logger = logging.getLogger(__name__)
 GENERATION_TIMEOUT_SECONDS = 300
@@ -34,6 +39,9 @@ class PreparedTurn:
     model: str
     sources: dict | None = None
     citations: list[dict] = field(default_factory=list)
+    web_query: str | None = None
+    evidence_question: str = ""
+    not_found: str = NOT_FOUND
 
 
 class ConversationService:
@@ -89,6 +97,10 @@ class ConversationService:
             while messages and sum(len(m["content"]) for m in messages) > 100000:
                 messages = messages[2:]
             messages.append({"role": "user", "content": request.message})
+            web_query = None
+            if request.web_search and request.web_search.enabled:
+                WebSearchService().ensure_configured()
+                web_query = request.web_search.query or request.message.strip()
             sources = None
             if request.rag and request.rag.enabled:
                 messages, sources = await prepare_evidence(
@@ -97,7 +109,17 @@ class ConversationService:
             assistant = await repo.begin_turn(
                 user_id, chat_id, request.request_id, request.message, provider, model
             )
-            return PreparedTurn(user_id, chat_id, assistant.id, messages, model, sources)
+            return PreparedTurn(
+                user_id,
+                chat_id,
+                assistant.id,
+                messages,
+                model,
+                sources if sources is not None else ({} if web_query else None),
+                web_query=web_query,
+                evidence_question=request.message,
+                not_found=WEB_NOT_FOUND if web_query else NOT_FOUND,
+            )
 
     async def finish(self, turn: PreparedTurn, content: str, status: str) -> None:
         if turn.sources is not None:
@@ -114,9 +136,21 @@ class ConversationService:
         iterator = None
         try:
             with anyio.fail_after(GENERATION_TIMEOUT_SECONDS):
+                # prepare() committed the turn and released its DB session first.
+                # One search per accepted turn, never PDF text or prior chat history.
+                if turn.web_query:
+                    sources = dict(turn.sources or {})
+                    sources.update(
+                        await WebSearchService().search(
+                            turn.web_query,
+                            start_label=len(sources) + 1,
+                        )
+                    )
+                    turn.sources = sources
+                    turn.messages = web_evidence_messages(turn.evidence_question, sources)
 
                 async def no_evidence():
-                    yield f"data: {json.dumps({'content': NOT_FOUND})}\n\n"
+                    yield f"data: {json.dumps({'content': turn.not_found})}\n\n"
                     yield 'data: {"done": true}\n\n'
 
                 iterator = (
@@ -136,7 +170,9 @@ class ConversationService:
                     if event.get("done"):
                         if turn.sources is not None:
                             parts = [normalize_citation_labels("".join(parts))]
-                            turn.citations = resolve_citations("".join(parts), turn.sources)
+                            turn.citations = resolve_citations(
+                                "".join(parts), turn.sources, not_found=turn.not_found
+                            )
                         # Shield the short commit: cancellation cannot turn a committed
                         # answer back into an interrupted row.
                         with anyio.CancelScope(shield=True):
